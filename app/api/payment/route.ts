@@ -97,5 +97,24 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  if (action === "can-scan") {
+    const user = await prisma.user.findUnique({
+      where: { id: session.dbUserId },
+    });
+    const hasWallet = Boolean(user?.xrplAddress);
+    const balance = user?.xrplAddress
+      ? await getWalletBalance(user.xrplAddress)
+      : 0;
+    const minBalanceForEscrow = 2; // 1 XRP escrow + buffer
+    const allowed = hasWallet && balance >= minBalanceForEscrow;
+    return NextResponse.json({
+      allowed,
+      hasWallet,
+      balance,
+      minBalanceForEscrow,
+      scanCreditsRemaining: allowed ? null : null, // escrow flow: no "credits", just balance
+    });
+  }
+
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }

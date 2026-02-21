@@ -48,6 +48,8 @@ interface Scan {
   createdAt: string;
   violations: Violation[];
   fixes: Fix[];
+  escrowTxHash?: string | null;
+  escrowCancelAfter?: string | null;
   pullRequest: PullRequest | null;
 }
 
@@ -210,6 +212,12 @@ export default function ScanDetailPage() {
         <div className="py-6 mb-8 border-t border-b border-[#ff3b5c33]" role="alert">
           <div className="font-mono text-sm uppercase tracking-wider text-[#ff3b5c] mb-1">Scan Failed</div>
           <p className="text-sm text-[#b3b3b3] font-body">{scan.errorMessage || "An unknown error occurred"}</p>
+          {scan.escrowTxHash && (
+            <p className="text-xs text-[#919191] font-body mt-3">
+              Your 1 XRP is still in escrow. After {scan.escrowCancelAfter ? new Date(scan.escrowCancelAfter).toLocaleString() : "~30 min"} you can cancel the escrow to get it back.{" "}
+              <a href={`https://testnet.xrpl.org/transactions/${scan.escrowTxHash}`} target="_blank" rel="noopener noreferrer" className="text-[#00f0ff] hover:underline">View escrow on XRPL</a>
+            </p>
+          )}
         </div>
       )}
 

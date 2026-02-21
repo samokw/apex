@@ -14,6 +14,7 @@ import {
   isAodaRelevant,
   getImpactWeight,
 } from "./wcag";
+import { finishEscrow } from "./xrpl-escrow";
 import fs from "fs/promises";
 import path from "path";
 
@@ -232,6 +233,15 @@ const { execSync } = require('child_process');
     });
     const score = calculateAccessibilityScore(allViolations);
 
+    // Release escrowed 1 XRP to Apex on success (pay for outcome)
+    if (scan.escrowOwner != null && scan.escrowOfferSequence != null) {
+      try {
+        await finishEscrow(scan.escrowOwner, scan.escrowOfferSequence);
+      } catch (escrowErr) {
+        console.error("EscrowFinish failed (scan succeeded):", escrowErr);
+      }
+    }
+
     await prisma.scan.update({
       where: { id: scanId },
       data: {
@@ -243,6 +253,7 @@ const { execSync } = require('child_process');
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    // On failure we do not finish the escrow; 1 XRP stays locked. User can EscrowCancel after escrowCancelAfter (~30 min) to get it back.
     await prisma.scan.update({
       where: { id: scanId },
       data: { status: "failed", errorMessage },
