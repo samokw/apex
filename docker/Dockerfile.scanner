@@ -1,0 +1,23 @@
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /scanner && cd /scanner && \
+    npm init -y && \
+    npm install playwright @axe-core/playwright && \
+    npx playwright install --with-deps chromium
+
+RUN npm install -g opencode-ai@latest
+
+ENV NODE_PATH=/scanner/node_modules
+
+WORKDIR /workspace
+
+RUN mkdir -p /output
+
+CMD ["sleep", "3600"]

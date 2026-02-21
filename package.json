@@ -9,17 +9,31 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@axe-core/playwright": "^4.11.1",
+    "@libsql/client": "^0.17.0",
+    "@octokit/rest": "^22.0.1",
+    "@prisma/adapter-libsql": "^7.4.1",
+    "@prisma/client": "^7.4.1",
+    "dockerode": "^4.0.9",
+    "dotenv": "^17.3.1",
     "next": "16.1.6",
+    "next-auth": "^5.0.0-beta.30",
+    "playwright": "^1.58.2",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-diff-viewer-continued": "^4.1.2",
+    "react-dom": "19.2.3",
+    "xrpl": "^4.6.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/dockerode": "^4.0.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "prisma": "^7.4.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

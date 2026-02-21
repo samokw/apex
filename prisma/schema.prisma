@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  githubId      String    @unique
+  username      String
+  email         String?
+  avatarUrl     String?
+  accessToken   String
+  xrplAddress   String?
+  xrplSeed      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  scans         Scan[]
+  payments      Payment[]
+}
+
+model Scan {
+  id            String      @id @default(cuid())
+  userId        String
+  repoOwner     String
+  repoName      String
+  repoUrl       String
+  branch        String      @default("main")
+  status        String      @default("pending") // pending | cloning | scanning | fixing | complete | failed
+  score         Float?
+  scoreAfter    Float?
+  errorMessage  String?
+  beforeScreenshot String?
+  afterScreenshot  String?
+  containerId   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          User        @relation(fields: [userId], references: [id])
+  violations    Violation[]
+  fixes         Fix[]
+  pullRequest   PullRequest?
+}
+
+model Violation {
+  id            String   @id @default(cuid())
+  scanId        String
+  ruleId        String
+  impact        String   // critical | serious | moderate | minor
+  description   String
+  helpUrl       String?
+  wcagCriteria  String?
+  aodaRelevant  Boolean  @default(false)
+  targetElement String?
+  sourceFile    String?
+  htmlSnippet   String?
+  score         Float    @default(0)
+  createdAt     DateTime @default(now())
+  scan          Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  fix           Fix?
+}
+
+model Fix {
+  id            String   @id @default(cuid())
+  scanId        String
+  violationId   String   @unique
+  filePath      String
+  originalCode  String
+  fixedCode     String
+  explanation   String?
+  status        String   @default("pending") // pending | accepted | rejected
+  createdAt     DateTime @default(now())
+  scan          Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  violation     Violation @relation(fields: [violationId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  userId        String
+  txHash        String?
+  amount        String
+  currency      String   @default("XRP")
+  paymentType   String   // scan | report | pr-credit
+  status        String   @default("pending") // pending | confirmed | failed
+  ledgerIndex   Int?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id])
+}
+
+model PullRequest {
+  id            String   @id @default(cuid())
+  scanId        String   @unique
+  prUrl         String
+  prNumber      Int
+  branchName    String
+  status        String   @default("open") // open | merged | closed
+  createdAt     DateTime @default(now())
+  scan          Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+}
