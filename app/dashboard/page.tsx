@@ -2,6 +2,7 @@ import { getApexSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PrLink } from "@/components/pr-link";
 
 export default async function DashboardPage() {
   const session = await getApexSession();
@@ -127,16 +128,7 @@ export default async function DashboardPage() {
                     </span>
 
                     {scan.pullRequest && (
-                      <a
-                        href={scan.pullRequest.prUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="font-mono text-xs text-[#00f0ff] hover:underline"
-                        aria-label={`View pull request #${scan.pullRequest.prNumber}`}
-                      >
-                        PR #{scan.pullRequest.prNumber}
-                      </a>
+                      <PrLink href={scan.pullRequest.prUrl} prNumber={scan.pullRequest.prNumber} />
                     )}
 
                     <svg className="w-4 h-4 text-[#919191] group-hover:text-[#00f0ff] group-hover:translate-x-1 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
