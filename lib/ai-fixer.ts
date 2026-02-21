@@ -9,6 +9,7 @@ import {
   type SandboxInstance,
 } from "./sandbox";
 import { calculateAccessibilityScore } from "./wcag";
+import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs/promises";
 import path from "path";
 
@@ -18,6 +19,38 @@ interface FixResult {
   fixedCode: string;
   explanation: string;
   violationId: string;
+}
+
+const anthropic = new Anthropic();
+
+async function collectSourceFiles(
+  repoPath: string,
+): Promise<Map<string, string>> {
+  const files = new Map<string, string>();
+  const extensions = [".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".css"];
+  const ignore = ["node_modules", ".git", "dist", "build", ".next"];
+
+  async function walk(dir: string, rel: string) {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (ignore.includes(entry.name)) continue;
+      const fullPath = path.join(dir, entry.name);
+      const relPath = path.join(rel, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath, relPath);
+      } else if (extensions.some((ext) => entry.name.endsWith(ext))) {
+        try {
+          const content = await fs.readFile(fullPath, "utf-8");
+          if (content.length < 50_000) {
+            files.set(relPath, content);
+          }
+        } catch { /* skip unreadable files */ }
+      }
+    }
+  }
+
+  await walk(repoPath, "");
+  return files;
 }
 
 export async function generateFixes(scanId: string, accessToken: string) {
@@ -42,38 +75,89 @@ export async function generateFixes(scanId: string, accessToken: string) {
     const repoUrl = `https://github.com/${scan.repoOwner}/${scan.repoName}`;
     await cloneRepo(repoUrl, dirs.repoPath, accessToken);
 
-    sandbox = await createSandbox({
-      repoPath: dirs.repoPath,
-      outputPath: dirs.outputPath,
+    const sourceFiles = await collectSourceFiles(dirs.repoPath);
+
+    const violationsSummary = scan.violations
+      .slice(0, 20)
+      .map(
+        (v, i) =>
+          `${i + 1}. [${v.impact.toUpperCase()}] ${v.ruleId}: ${v.description}
+   Element: ${v.targetElement || "unknown"}
+   HTML: ${v.htmlSnippet?.substring(0, 300) || "N/A"}
+   WCAG: ${v.wcagCriteria || "N/A"}
+   Violation ID: ${v.id}`,
+      )
+      .join("\n\n");
+
+    const fileList = Array.from(sourceFiles.entries())
+      .map(([filePath, content]) => `--- ${filePath} ---\n${content}`)
+      .join("\n\n");
+
+    const message = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      messages: [
+        {
+          role: "user",
+          content: `You are an accessibility remediation expert. Fix the WCAG violations below by modifying the source files.
+
+VIOLATIONS:
+
+${violationsSummary}
+
+SOURCE FILES:
+
+${fileList}
+
+For Ontario AODA/IASR compliance, fixes must conform to WCAG 2.0 Level AA.
+
+Rules:
+- Apply the MINIMUM change needed to fix each violation
+- Preserve existing code style
+- Do not add new dependencies
+
+Respond with ONLY a JSON object (no markdown fences, no extra text) in this exact format:
+{"fixes": [{"filePath": "path/to/file", "originalCode": "the exact original lines", "fixedCode": "the corrected lines", "explanation": "what was changed and why", "violationId": "the violation ID from above"}]}
+
+Include the relevant surrounding context (3-5 lines) in originalCode and fixedCode so the diff is meaningful. Every fix MUST have non-empty originalCode and fixedCode.`,
+        },
+      ],
     });
 
-    const violationsSummary = scan.violations.map((v) => ({
-      id: v.id,
-      ruleId: v.ruleId,
-      impact: v.impact,
-      description: v.description,
-      targetElement: v.targetElement,
-      htmlSnippet: v.htmlSnippet,
-      wcagCriteria: v.wcagCriteria,
-    }));
-
-    const prompt = buildFixPrompt(violationsSummary);
-
-    const result = await execInSandbox(sandbox, [
-      "bash", "-c",
-      `opencode run "${prompt.replace(/"/g, '\\"').replace(/\n/g, '\\n')}" --format json 2>/dev/null || echo '{"fixes":[]}'`,
-    ]);
+    const responseText =
+      message.content[0].type === "text" ? message.content[0].text : "";
 
     let fixes: FixResult[] = [];
     try {
-      const parsed = JSON.parse(result.stdout.trim());
-      fixes = parsed.fixes || [];
+      const jsonMatch = responseText.match(/\{[\s\S]*"fixes"[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        fixes = (parsed.fixes || []).filter(
+          (f: FixResult) => f.originalCode && f.fixedCode,
+        );
+      }
     } catch {
-      fixes = extractFixesFromText(result.stdout, scan.violations);
+      console.error("[AI Fixer] Failed to parse Claude response:", responseText.substring(0, 500));
+    }
+
+    if (fixes.length === 0) {
+      fixes = scan.violations.slice(0, 5).map((v) => {
+        const snippet = v.htmlSnippet || "";
+        return {
+          filePath: v.sourceFile || "index.html",
+          originalCode: snippet,
+          fixedCode: snippet,
+          explanation:
+            "Automatic fix could not be generated. Manual review required.",
+          violationId: v.id,
+        };
+      });
     }
 
     for (const fix of fixes) {
-      const violation = scan.violations.find((v) => v.id === fix.violationId) || scan.violations[0];
+      const violation =
+        scan.violations.find((v) => v.id === fix.violationId) ||
+        scan.violations[0];
       if (!violation) continue;
 
       await prisma.fix.create({
@@ -89,18 +173,10 @@ export async function generateFixes(scanId: string, accessToken: string) {
       });
     }
 
-    // Generate git diff for all changes
-    const diffResult = await execInSandbox(sandbox, [
-      "bash", "-c",
-      "cd /workspace && git diff --no-color 2>/dev/null || true",
-    ]);
-
-    if (diffResult.stdout.trim()) {
-      await fs.writeFile(
-        path.join(dirs.outputPath, "diff.patch"),
-        diffResult.stdout
-      );
-    }
+    sandbox = await createSandbox({
+      repoPath: dirs.repoPath,
+      outputPath: dirs.outputPath,
+    });
 
     // Take after screenshot
     await execInSandbox(sandbox, [
@@ -128,7 +204,9 @@ function tryConnect(port, host) {
   const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto(url, { timeout: 10000, waitUntil: 'domcontentloaded' });
+  await page.goto(url, { timeout: 10000, waitUntil: 'load' });
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await new Promise(r => setTimeout(r, 2000));
   await page.screenshot({ path: '/output/after.png', fullPage: true });
   await context.close();
   await browser.close();
@@ -142,10 +220,9 @@ function tryConnect(port, host) {
       afterScreenshot = buf.toString("base64");
     } catch { /* no screenshot */ }
 
-    // Recalculate score after fixes
     const allFixes = await prisma.fix.findMany({ where: { scanId } });
     const remainingViolations = scan.violations.filter(
-      (v) => !allFixes.some((f) => f.violationId === v.id)
+      (v) => !allFixes.some((f) => f.violationId === v.id),
     );
     const scoreAfter = calculateAccessibilityScore(remainingViolations);
 
@@ -167,68 +244,4 @@ function tryConnect(port, host) {
     if (sandbox) await destroySandbox(sandbox);
     if (dirs) await cleanupTempDirs(dirs.base);
   }
-}
-
-function buildFixPrompt(
-  violations: Array<{
-    id: string;
-    ruleId: string;
-    impact: string;
-    description: string;
-    targetElement: string | null;
-    htmlSnippet: string | null;
-    wcagCriteria: string | null;
-  }>
-): string {
-  const violationList = violations
-    .slice(0, 20)
-    .map(
-      (v, i) =>
-        `${i + 1}. [${v.impact.toUpperCase()}] ${v.ruleId}: ${v.description}
-   Element: ${v.targetElement || "unknown"}
-   HTML: ${v.htmlSnippet?.substring(0, 200) || "N/A"}
-   WCAG: ${v.wcagCriteria || "N/A"}
-   Violation ID: ${v.id}`
-    )
-    .join("\n\n");
-
-  return `You are an accessibility remediation agent. Fix the following WCAG accessibility violations in this codebase.
-
-IMPORTANT: Follow the existing code style and patterns. Do not introduce new dependencies.
-
-For Ontario AODA/IASR compliance, these must conform to WCAG 2.0 Level AA.
-
-Violations to fix:
-
-${violationList}
-
-For each fix:
-1. Find the relevant source file
-2. Apply the minimum change needed to resolve the violation
-3. Preserve existing styling and code patterns
-
-After making all fixes, output a JSON summary to /output/fixes.json with this structure:
-{"fixes": [{"filePath": "...", "originalCode": "...", "fixedCode": "...", "explanation": "...", "violationId": "..."}]}`;
-}
-
-function extractFixesFromText(
-  text: string,
-  violations: Array<{ id: string }>
-): FixResult[] {
-  // Fallback: try to parse any JSON blocks in the output
-  const jsonMatch = text.match(/\{[\s\S]*"fixes"[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return parsed.fixes || [];
-    } catch { /* continue */ }
-  }
-
-  return violations.slice(0, 5).map((v) => ({
-    filePath: "unknown",
-    originalCode: "",
-    fixedCode: "",
-    explanation: "Fix could not be automatically generated. Manual review required.",
-    violationId: v.id,
-  }));
 }
