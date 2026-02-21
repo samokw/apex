@@ -107,12 +107,29 @@ export async function generateFixes(scanId: string, accessToken: string) {
       "bash", "-c",
       `node -e "
 const { chromium } = require('playwright');
+const net = require('net');
+function checkPort(port) {
+  return new Promise(resolve => {
+    const sock = new net.Socket();
+    sock.setTimeout(1500);
+    sock.once('connect', () => { sock.destroy(); resolve(true); });
+    sock.once('error', () => resolve(false));
+    sock.once('timeout', () => { sock.destroy(); resolve(false); });
+    sock.connect(port, '127.0.0.1');
+  });
+}
 (async () => {
-  const browser = await chromium.launch({ args: ['--no-sandbox'] });
-  const page = await browser.newPage();
-  try { await page.goto('http://localhost:3000', { timeout: 5000 }); }
-  catch { try { await page.goto('http://localhost:5173', { timeout: 5000 }); } catch {} }
+  let url = null;
+  for (const p of [3000, 5173, 4173, 8080]) {
+    if (await checkPort(p)) { url = 'http://127.0.0.1:' + p; break; }
+  }
+  if (!url) return;
+  const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(url, { timeout: 10000, waitUntil: 'domcontentloaded' });
   await page.screenshot({ path: '/output/after.png', fullPage: true });
+  await context.close();
   await browser.close();
 })().catch(() => {});
 "`,

@@ -71,17 +71,27 @@ export async function runScan(scanId: string, accessToken: string) {
 const { chromium } = require('playwright');
 const { AxeBuilder } = require('@axe-core/playwright');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const http = require('http');
+const pathMod = require('path');
+const net = require('net');
+
+function checkPort(port) {
+  return new Promise(resolve => {
+    const sock = new net.Socket();
+    sock.setTimeout(1500);
+    sock.once('connect', () => { sock.destroy(); resolve(true); });
+    sock.once('error', () => resolve(false));
+    sock.once('timeout', () => { sock.destroy(); resolve(false); });
+    sock.connect(port, '127.0.0.1');
+  });
+}
 
 (async () => {
   console.log('Starting scan...');
-  const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  const page = await browser.newPage();
-
   let url = null;
   let devServer = null;
+  let staticServer = null;
 
-  // Try starting a dev server
   const pkgPath = '/workspace/package.json';
   if (fs.existsSync(pkgPath)) {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
@@ -101,18 +111,15 @@ const { execSync } = require('child_process');
     }
   }
 
-  // Try common dev server ports
   const ports = [3000, 5173, 4173, 8080, 8000, 4200];
-  for (const port of ports) {
-    try {
-      await page.goto('http://localhost:' + port, { timeout: 3000, waitUntil: 'domcontentloaded' });
-      url = 'http://localhost:' + port;
-      console.log('Connected to dev server at port', port);
+  for (const p of ports) {
+    if (await checkPort(p)) {
+      url = 'http://127.0.0.1:' + p;
+      console.log('Found dev server at port', p);
       break;
-    } catch {}
+    }
   }
 
-  // Fallback to static HTML
   if (!url) {
     const candidates = [
       '/workspace/index.html',
@@ -123,9 +130,25 @@ const { execSync } = require('child_process');
     ];
     for (const f of candidates) {
       if (fs.existsSync(f)) {
-        url = 'file://' + f;
-        await page.goto(url, { waitUntil: 'domcontentloaded' });
-        console.log('Using static file:', f);
+        const serveDir = pathMod.dirname(f);
+        staticServer = http.createServer((req, res) => {
+          let reqPath = req.url.split('?')[0];
+          if (reqPath === '/') reqPath = '/index.html';
+          const filePath = pathMod.join(serveDir, reqPath);
+          const ext = pathMod.extname(filePath);
+          const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.mjs': 'application/javascript', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };
+          fs.readFile(filePath, (err, data) => {
+            if (err) { res.writeHead(404); res.end(); return; }
+            res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
+            res.end(data);
+          });
+        });
+        const port = await new Promise((resolve, reject) => {
+          staticServer.listen(0, '127.0.0.1', () => resolve(staticServer.address().port));
+          staticServer.on('error', reject);
+        });
+        url = 'http://127.0.0.1:' + port;
+        console.log('Serving static file via HTTP on port ' + port + ':', f);
         break;
       }
     }
@@ -135,10 +158,16 @@ const { execSync } = require('child_process');
     const error = 'No running dev server found and no index.html in the repository. Make sure the repo has a web frontend with an index.html or a dev server script.';
     console.error(error);
     fs.writeFileSync('/output/scan-error.json', JSON.stringify({ error }));
-    await browser.close();
     if (devServer) devServer.kill();
     process.exit(1);
   }
+
+  const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+  console.log('Page loaded:', url);
 
   console.log('Taking screenshot...');
   await page.screenshot({ path: '/output/before.png', fullPage: true });
@@ -153,8 +182,10 @@ const { execSync } = require('child_process');
     timestamp: new Date().toISOString()
   }, null, 2));
 
+  await context.close();
   await browser.close();
   if (devServer) devServer.kill();
+  if (staticServer) staticServer.close();
   console.log('Scan complete.');
 })().catch(err => {
   console.error('Scan error:', err.message);
