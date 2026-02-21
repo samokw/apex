@@ -173,6 +173,18 @@ Include the relevant surrounding context (3-5 lines) in originalCode and fixedCo
       });
     }
 
+    // Apply fixes to local files so the after screenshot reflects the changes
+    for (const fix of fixes) {
+      if (fix.originalCode === fix.fixedCode) continue;
+      const filePath = path.join(dirs.repoPath, fix.filePath);
+      try {
+        const content = await fs.readFile(filePath, "utf-8");
+        if (content.includes(fix.originalCode)) {
+          await fs.writeFile(filePath, content.replace(fix.originalCode, fix.fixedCode), "utf-8");
+        }
+      } catch { /* file not found or unreadable, skip */ }
+    }
+
     sandbox = await createSandbox({
       repoPath: dirs.repoPath,
       outputPath: dirs.outputPath,

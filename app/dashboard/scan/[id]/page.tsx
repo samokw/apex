@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { SeverityBadge } from "@/components/severity-badge";
 import Link from "next/link";
 import ReactDiffViewer from "react-diff-viewer-continued";
@@ -56,9 +56,13 @@ interface Scan {
 export default function ScanDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [scan, setScan] = useState<Scan | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [reportPaid, setReportPaid] = useState(false);
+  const [prPaid, setPrPaid] = useState(false);
 
   const fetchScan = useCallback(async () => {
     const res = await fetch(`/api/scan/${params.id}`);
@@ -67,13 +71,40 @@ export default function ScanDetailPage() {
     setLoading(false);
   }, [params.id]);
 
+  const checkPayments = useCallback(async () => {
+    const [reportRes, prRes] = await Promise.all([
+      fetch("/api/payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "check-payment", paymentType: "report", scanId: params.id }),
+      }),
+      fetch("/api/payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "check-payment", paymentType: "pr-credit", scanId: params.id }),
+      }),
+    ]);
+    const reportData = await reportRes.json();
+    const prData = await prRes.json();
+    setReportPaid(!!reportData.paid);
+    setPrPaid(!!prData.paid);
+  }, [params.id]);
+
   useEffect(() => {
     fetchScan();
+    checkPayments();
     const interval = setInterval(() => {
       fetchScan();
     }, 5000);
     return () => clearInterval(interval);
-  }, [fetchScan]);
+  }, [fetchScan, checkPayments]);
+
+  useEffect(() => {
+    const required = searchParams.get("paymentRequired");
+    if (required === "report") {
+      setPaymentError("Payment required to view the report. Click 'Report (0.5 XRP)' to pay with escrow.");
+    }
+  }, [searchParams]);
 
   const generateFixes = async () => {
     setActionLoading("fix");
@@ -95,16 +126,72 @@ export default function ScanDetailPage() {
     fetchScan();
   };
 
-  const createPR = async () => {
+  const payAndNavigateReport = async () => {
+    if (reportPaid) {
+      router.push(`/dashboard/scan/${params.id}/report`);
+      return;
+    }
+    setActionLoading("report");
+    setPaymentError(null);
+    try {
+      const res = await fetch("/api/payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create-escrow",
+          paymentType: "report",
+          scanId: params.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPaymentError(data.error || "Payment failed");
+        setActionLoading(null);
+        return;
+      }
+      setReportPaid(true);
+      router.push(`/dashboard/scan/${params.id}/report`);
+    } catch {
+      setPaymentError("Payment failed. Please try again.");
+      setActionLoading(null);
+    }
+  };
+
+  const payAndCreatePR = async () => {
     setActionLoading("pr");
-    const res = await fetch("/api/pr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scanId: params.id }),
-    });
-    const data = await res.json();
-    if (data.prUrl) {
-      fetchScan();
+    setPaymentError(null);
+    try {
+      // Create escrow first
+      const payRes = await fetch("/api/payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create-escrow",
+          paymentType: "pr-credit",
+          scanId: params.id,
+        }),
+      });
+      const payData = await payRes.json();
+      if (!payRes.ok) {
+        setPaymentError(payData.error || "Payment failed");
+        setActionLoading(null);
+        return;
+      }
+
+      // Now create the PR
+      const prRes = await fetch("/api/pr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scanId: params.id, paymentId: payData.paymentId }),
+      });
+      const prData = await prRes.json();
+      if (prData.prUrl) {
+        fetchScan();
+      } else if (prData.error) {
+        setPaymentError(`PR failed: ${prData.error}. Your 2 XRP escrow can be cancelled after 5 min.`);
+      }
+    } catch {
+      setPaymentError("PR creation failed. Your escrow can be cancelled after 5 min.");
     }
     setActionLoading(null);
   };
@@ -174,23 +261,37 @@ export default function ScanDetailPage() {
 
           {acceptedFixes.length > 0 && !scan.pullRequest && (
             <button
-              onClick={createPR}
+              onClick={payAndCreatePR}
               disabled={actionLoading !== null}
               className="font-mono text-xs uppercase tracking-wider px-5 py-3 border border-[#4ade80] text-[#4ade80] hover:bg-[#4ade80] hover:text-black disabled:opacity-50 transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4ade80]"
             >
-              {actionLoading === "pr" ? "Creating PR..." : `Create PR (${acceptedFixes.length})`}
+              {actionLoading === "pr" ? "Creating PR..." : prPaid ? `Create PR (${acceptedFixes.length})` : `Create PR — 2 XRP (${acceptedFixes.length})`}
             </button>
           )}
 
-          <Link
-            href={`/dashboard/scan/${scan.id}/report`}
-            className="font-mono text-xs uppercase tracking-wider px-5 py-3 border border-[#1a1a1a] text-[#919191] hover:border-[#00f0ff] hover:text-[#00f0ff] transition-all min-h-[44px] flex items-center"
+          <button
+            onClick={payAndNavigateReport}
+            disabled={actionLoading !== null}
+            className="font-mono text-xs uppercase tracking-wider px-5 py-3 border border-[#1a1a1a] text-[#919191] hover:border-[#00f0ff] hover:text-[#00f0ff] disabled:opacity-50 transition-all min-h-[44px] flex items-center"
           >
-            Report
-          </Link>
+            {actionLoading === "report" ? "Paying..." : reportPaid ? "View Report" : "Report — 0.5 XRP"}
+          </button>
         </div>
       </div>
       <hr className="editorial-rule-thick mb-8" aria-hidden="true" />
+
+      {/* Payment error */}
+      {paymentError && (
+        <div className="py-4 px-5 mb-6 border border-[#ff3b5c33] bg-[#ff3b5c08]" role="alert">
+          <p className="text-sm text-[#ff3b5c] font-body">{paymentError}</p>
+          <button
+            onClick={() => setPaymentError(null)}
+            className="text-xs text-[#919191] hover:text-[#f5f5f5] font-mono mt-2 uppercase tracking-wider"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Status bar */}
       {isInProgress && (
@@ -214,7 +315,7 @@ export default function ScanDetailPage() {
           <p className="text-sm text-[#b3b3b3] font-body">{scan.errorMessage || "An unknown error occurred"}</p>
           {scan.escrowTxHash && (
             <p className="text-xs text-[#919191] font-body mt-3">
-              Your 1 XRP is still in escrow. After {scan.escrowCancelAfter ? new Date(scan.escrowCancelAfter).toLocaleString() : "~30 min"} you can cancel the escrow to get it back.{" "}
+              Your 1 XRP is still in escrow. After {scan.escrowCancelAfter ? new Date(scan.escrowCancelAfter).toLocaleString() : "~5 min"} you can cancel the escrow to get it back.{" "}
               <a href={`https://testnet.xrpl.org/transactions/${scan.escrowTxHash}`} target="_blank" rel="noopener noreferrer" className="text-[#00f0ff] hover:underline">View escrow on XRPL</a>
             </p>
           )}

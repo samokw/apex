@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     scanId: scan.id,
     status: "pending",
     escrowTxHash: escrow.txHash,
-    message: "1 XRP held in escrow; will release to Apex on success or you can cancel after 30 min if the scan fails.",
+    message: "1 XRP held in escrow; will release to Apex on success or you can cancel after 5 min if the scan fails.",
   });
 }
 

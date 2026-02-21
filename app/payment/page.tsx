@@ -9,18 +9,11 @@ interface WalletInfo {
   balance: number;
 }
 
-interface PaymentResult {
-  txHash: string;
-  amount: string;
-  explorerUrl: string;
-}
-
 export default function PaymentPage() {
   const { data: session } = useSession();
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [lastPayment, setLastPayment] = useState<PaymentResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,33 +57,10 @@ export default function PaymentPage() {
     setActionLoading(null);
   };
 
-  const makePayment = async (paymentType: string) => {
-    setActionLoading(paymentType);
-    setError(null);
-    setLastPayment(null);
-    try {
-      const res = await fetch("/api/payment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "pay", paymentType }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setLastPayment(data);
-        fetchBalance();
-      }
-    } catch {
-      setError("Payment failed");
-    }
-    setActionLoading(null);
-  };
-
-  // Scans use escrow (1 XRP locked when you run a scan from Repos), so no "Pay for Scan" here.
-  const paymentTiers = [
-    { type: "report", label: "Report", amount: "0.5", desc: "AODA compliance report" },
-    { type: "pr-credit", label: "PR", amount: "2", desc: "Remediation + pull request" },
+  const pricingTiers = [
+    { label: "Scan", amount: "1", desc: "Accessibility scan with AI fix generation", trigger: "Run from the Repos tab" },
+    { label: "Report", amount: "0.5", desc: "AODA/WCAG compliance report", trigger: "Click Report on a scan" },
+    { label: "PR", amount: "2", desc: "AI remediation + GitHub pull request", trigger: "Click Create PR on a scan" },
   ];
 
   return (
@@ -105,10 +75,11 @@ export default function PaymentPage() {
           Wallet
         </h1>
         <p className="font-body text-sm text-[#b3b3b3] mb-2">
-          Pay per scan with XRP micropayments on the XRPL Testnet.
+          Pay with XRP escrow on the XRPL Testnet — no upfront charges.
         </p>
         <p className="font-body text-xs text-[#919191] mb-4 max-w-xl">
-          <strong className="text-[#b3b3b3]">Your wallet</strong> (created below) is where you pay from. When you click Pay, XRP is sent from your wallet to <strong className="text-[#b3b3b3]">Apex&apos;s wallet</strong> (configured on the server). You never use your own .env wallet here — that&apos;s for the server to receive payments.
+          XRP is locked in escrow when you run a scan, generate a report, or create a PR.
+          On success, the escrow releases to Apex. If something fails, you can cancel and reclaim your XRP after 5 minutes.
         </p>
         <hr className="editorial-rule-thick mb-8" aria-hidden="true" />
 
@@ -165,62 +136,26 @@ export default function PaymentPage() {
           </div>
         )}
 
-        {/* Payment tiers — Report & PR; scans use escrow when you run them from Repos */}
+        {/* Pricing — all payments happen via escrow from the scan flow */}
         {wallet?.address && (
           <div className="mb-8">
-            <div className="font-mono text-xs uppercase tracking-widest text-[#919191] mb-2">Purchase credits</div>
-            <p className="font-body text-xs text-[#919191] mb-4">Scans use escrow: 1 XRP is locked when you run a scan from the Repos tab (released to Apex on success). Pay below for Report or PR.</p>
-            <div className="grid grid-cols-2 gap-0 border-t border-[#1a1a1a]">
-              {paymentTiers.map((tier, i) => (
-                <div key={tier.type} className={`py-10 px-6 md:px-8 flex flex-col justify-between ${i > 0 ? "border-l border-[#1a1a1a]" : ""}`}>
-                  <div>
-                    <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-4">{tier.label}</div>
-                    <div className="font-editorial text-4xl md:text-5xl italic text-[#f5f5f5]">
-                      {tier.amount}
-                    </div>
-                    <div className="font-mono text-xs text-[#919191] mt-1">XRP</div>
-                    <p className="font-body text-xs text-[#919191] mt-4">{tier.desc}</p>
+            <div className="font-mono text-xs uppercase tracking-widest text-[#919191] mb-2">Pricing</div>
+            <p className="font-body text-xs text-[#919191] mb-4">
+              All payments use XRPL escrow. XRP is locked when you trigger an action and released to Apex on success.
+              If something fails, you can cancel the escrow and reclaim your XRP after 5 minutes.
+            </p>
+            <div className="grid grid-cols-3 gap-0 border-t border-[#1a1a1a]">
+              {pricingTiers.map((tier, i) => (
+                <div key={tier.label} className={`py-10 px-6 md:px-8 ${i > 0 ? "border-l border-[#1a1a1a]" : ""}`}>
+                  <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-4">{tier.label}</div>
+                  <div className="font-editorial text-4xl md:text-5xl italic text-[#f5f5f5]">
+                    {tier.amount}
                   </div>
-                  <button
-                    onClick={() => makePayment(tier.type)}
-                    disabled={actionLoading !== null}
-                    className="mt-6 w-full font-mono text-xs uppercase tracking-wider text-[#00f0ff] border border-[#1a1a1a] py-3 hover:border-[#00f0ff] hover:bg-[#00f0ff] hover:text-black disabled:opacity-50 transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00f0ff]"
-                    aria-label={`Pay ${tier.amount} XRP for ${tier.label}`}
-                  >
-                    {actionLoading === tier.type ? "Processing..." : "Pay"}
-                  </button>
+                  <div className="font-mono text-xs text-[#919191] mt-1">XRP</div>
+                  <p className="font-body text-xs text-[#919191] mt-4">{tier.desc}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-[#00f0ff] mt-4">{tier.trigger}</p>
                 </div>
               ))}
-            </div>
-          </div>
-        )}
-
-        {/* Last payment result */}
-        {lastPayment && (
-          <div className="py-6 mb-8 border-t border-b border-[#4ade8033]" role="status" aria-live="polite">
-            <div className="flex items-center gap-3 mb-3">
-              <svg className="w-5 h-5 text-[#4ade80]" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <span className="font-mono text-sm uppercase tracking-wider text-[#4ade80]">Payment Confirmed</span>
-            </div>
-            <div className="space-y-2 text-sm font-body">
-              <div>
-                <span className="text-[#919191]">Amount: </span>
-                <span className="font-mono">{lastPayment.amount} XRP</span>
-              </div>
-              <div>
-                <span className="text-[#919191]">Transaction: </span>
-                <code className="font-mono text-xs text-[#b3b3b3] break-all">{lastPayment.txHash}</code>
-              </div>
-              <a
-                href={lastPayment.explorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[#00f0ff] hover:underline font-mono text-xs mt-2"
-              >
-                View on XRPL Explorer →
-              </a>
             </div>
           </div>
         )}

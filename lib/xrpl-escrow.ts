@@ -1,10 +1,15 @@
 import { Wallet, xrpToDrops } from "xrpl";
 import { getXrplClient, getExplorerUrl } from "./xrpl";
 
-const SCAN_XRP_AMOUNT = "1";
 const RIPPLE_EPOCH_SECONDS = 946684800; // Jan 1, 2000 00:00:00 UTC
-const FINISH_AFTER_SECONDS = 45; // ~45 sec — Apex can release after this (scan usually takes 1+ min)
-const CANCEL_AFTER_SECONDS = 1800; // 30 min — user can cancel and get XRP back after this
+const FINISH_AFTER_SECONDS = 45; // ~45 sec — Apex can release after this
+const CANCEL_AFTER_SECONDS = 300; // 5 min — user can cancel and reclaim XRP
+
+export const ESCROW_AMOUNTS: Record<string, string> = {
+  scan: "1",
+  report: "0.5",
+  "pr-credit": "2",
+};
 
 const APEX_WALLET_SEED =
   process.env.XRPL_WALLET_SEED || process.env.APEX_XRPL_SEED;
@@ -13,7 +18,7 @@ function rippleTimeNow(): number {
   return Math.floor(Date.now() / 1000) - RIPPLE_EPOCH_SECONDS;
 }
 
-export interface CreateScanEscrowResult {
+export interface EscrowResult {
   txHash: string;
   offerSequence: number;
   owner: string;
@@ -22,11 +27,13 @@ export interface CreateScanEscrowResult {
 }
 
 /**
- * User locks 1 XRP in escrow to Apex. On success we finish (release to Apex); on failure user can cancel after CancelAfter.
+ * Lock XRP in escrow from user to Apex.
+ * On success we finish (release to Apex); on failure user can cancel after 5 min.
  */
-export async function createScanEscrow(
-  userSeed: string
-): Promise<CreateScanEscrowResult> {
+export async function createEscrow(
+  userSeed: string,
+  amountXRP: string
+): Promise<EscrowResult> {
   if (!APEX_WALLET_SEED) {
     throw new Error(
       "Receiving wallet not configured. Set XRPL_WALLET_SEED or APEX_XRPL_SEED."
@@ -43,7 +50,7 @@ export async function createScanEscrow(
     const escrowCreate = {
       TransactionType: "EscrowCreate",
       Account: userWallet.address,
-      Amount: xrpToDrops(SCAN_XRP_AMOUNT),
+      Amount: xrpToDrops(amountXRP),
       Destination: apexWallet.address,
       FinishAfter: finishAfter,
       CancelAfter: cancelAfter,
@@ -74,6 +81,13 @@ export async function createScanEscrow(
   } finally {
     await client.disconnect();
   }
+}
+
+/** Backwards-compatible wrapper for scan escrows */
+export async function createScanEscrow(
+  userSeed: string
+): Promise<EscrowResult> {
+  return createEscrow(userSeed, ESCROW_AMOUNTS.scan);
 }
 
 /**
@@ -146,4 +160,4 @@ export function getEscrowExplorerUrl(txHash: string): string {
   return getExplorerUrl(txHash);
 }
 
-export const SCAN_ESCROW_XRP = SCAN_XRP_AMOUNT;
+export const SCAN_ESCROW_XRP = ESCROW_AMOUNTS.scan;

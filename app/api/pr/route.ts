@@ -3,6 +3,7 @@ import { getApexSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { createBranch, applyFixToFile, createPullRequest } from "@/lib/github";
 import { generateReportSummary } from "@/lib/wcag";
+import { finishEscrow } from "@/lib/xrpl-escrow";
 
 export async function POST(req: NextRequest) {
   const session = await getApexSession();
@@ -10,9 +11,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { scanId } = await req.json();
+  const { scanId, paymentId } = await req.json();
   if (!scanId) {
     return NextResponse.json({ error: "Missing scanId" }, { status: 400 });
+  }
+
+  // Verify escrow payment exists
+  const payment = paymentId
+    ? await prisma.payment.findUnique({ where: { id: paymentId } })
+    : await prisma.payment.findFirst({
+        where: {
+          userId: session.dbUserId,
+          scanId,
+          paymentType: "pr-credit",
+          status: { in: ["escrowed", "confirmed"] },
+        },
+      });
+
+  if (!payment || payment.userId !== session.dbUserId) {
+    return NextResponse.json(
+      { error: "Payment required. Create an escrow for 2 XRP first.", code: "PAYMENT_REQUIRED" },
+      { status: 402 }
+    );
   }
 
   const scan = await prisma.scan.findUnique({
@@ -113,6 +133,19 @@ ${scan.fixes.map((f, i) => `${i + 1}. \`${f.filePath}\`: ${f.explanation}`).join
         status: "open",
       },
     });
+
+    // Release escrowed XRP to Apex on success
+    if (payment.status === "escrowed" && payment.escrowOwner && payment.escrowOfferSequence != null) {
+      try {
+        const result = await finishEscrow(payment.escrowOwner, payment.escrowOfferSequence);
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: { status: "confirmed", txHash: result.txHash },
+        });
+      } catch (escrowErr) {
+        console.error("EscrowFinish failed (PR succeeded):", escrowErr);
+      }
+    }
 
     return NextResponse.json({ prUrl, prNumber, branchName });
   } catch (err) {
