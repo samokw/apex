@@ -75,15 +75,18 @@ const http = require('http');
 const pathMod = require('path');
 const net = require('net');
 
-function checkPort(port) {
+function tryConnect(port, host) {
   return new Promise(resolve => {
     const sock = new net.Socket();
     sock.setTimeout(1500);
     sock.once('connect', () => { sock.destroy(); resolve(true); });
     sock.once('error', () => resolve(false));
     sock.once('timeout', () => { sock.destroy(); resolve(false); });
-    sock.connect(port, '127.0.0.1');
+    sock.connect(port, host);
   });
+}
+async function checkPort(port) {
+  return await tryConnect(port, '127.0.0.1') || await tryConnect(port, '::1');
 }
 
 (async () => {
@@ -113,9 +116,14 @@ function checkPort(port) {
 
   const ports = [3000, 5173, 4173, 8080, 8000, 4200];
   for (const p of ports) {
-    if (await checkPort(p)) {
+    if (await tryConnect(p, '127.0.0.1')) {
       url = 'http://127.0.0.1:' + p;
-      console.log('Found dev server at port', p);
+      console.log('Found dev server at port', p, '(IPv4)');
+      break;
+    }
+    if (await tryConnect(p, '::1')) {
+      url = 'http://[::1]:' + p;
+      console.log('Found dev server at port', p, '(IPv6)');
       break;
     }
   }

@@ -108,20 +108,21 @@ export async function generateFixes(scanId: string, accessToken: string) {
       `node -e "
 const { chromium } = require('playwright');
 const net = require('net');
-function checkPort(port) {
+function tryConnect(port, host) {
   return new Promise(resolve => {
     const sock = new net.Socket();
     sock.setTimeout(1500);
     sock.once('connect', () => { sock.destroy(); resolve(true); });
     sock.once('error', () => resolve(false));
     sock.once('timeout', () => { sock.destroy(); resolve(false); });
-    sock.connect(port, '127.0.0.1');
+    sock.connect(port, host);
   });
 }
 (async () => {
   let url = null;
   for (const p of [3000, 5173, 4173, 8080]) {
-    if (await checkPort(p)) { url = 'http://127.0.0.1:' + p; break; }
+    if (await tryConnect(p, '127.0.0.1')) { url = 'http://127.0.0.1:' + p; break; }
+    if (await tryConnect(p, '::1')) { url = 'http://[::1]:' + p; break; }
   }
   if (!url) return;
   const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
