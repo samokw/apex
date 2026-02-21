@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApexSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { createBranch, commitFile, createPullRequest } from "@/lib/github";
+import { createBranch, applyFixToFile, createPullRequest } from "@/lib/github";
 import { generateReportSummary } from "@/lib/wcag";
 
 export async function POST(req: NextRequest) {
@@ -42,12 +42,13 @@ export async function POST(req: NextRequest) {
     );
 
     for (const fix of scan.fixes) {
-      await commitFile(
+      await applyFixToFile(
         session.accessToken,
         scan.repoOwner,
         scan.repoName,
         branchName,
         fix.filePath,
+        fix.originalCode,
         fix.fixedCode,
         `fix(a11y): ${fix.explanation?.substring(0, 72) || "Fix accessibility violation"}`
       );
