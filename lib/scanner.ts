@@ -166,7 +166,9 @@ function checkPort(port) {
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+  await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await new Promise(r => setTimeout(r, 2000));
   console.log('Page loaded:', url);
 
   console.log('Taking screenshot...');
