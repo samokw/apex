@@ -50,6 +50,7 @@ interface Scan {
   fixes: Fix[];
   escrowTxHash?: string | null;
   escrowCancelAfter?: string | null;
+  escrowRefundedAt?: string | null;
   pullRequest: PullRequest | null;
 }
 
@@ -63,6 +64,8 @@ export default function ScanDetailPage() {
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [reportPaid, setReportPaid] = useState(false);
   const [prPaid, setPrPaid] = useState(false);
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundError, setRefundError] = useState<string | null>(null);
 
   const fetchScan = useCallback(async () => {
     const res = await fetch(`/api/scan/${params.id}`);
@@ -314,10 +317,50 @@ export default function ScanDetailPage() {
           <div className="font-mono text-sm uppercase tracking-wider text-[#ff3b5c] mb-1">Scan Failed</div>
           <p className="text-sm text-[#b3b3b3] font-body">{scan.errorMessage || "An unknown error occurred"}</p>
           {scan.escrowTxHash && (
-            <p className="text-xs text-[#919191] font-body mt-3">
-              Your 1 XRP is still in escrow. After {scan.escrowCancelAfter ? new Date(scan.escrowCancelAfter).toLocaleString() : "~5 min"} you can cancel the escrow to get it back.{" "}
-              <a href={`https://testnet.xrpl.org/transactions/${scan.escrowTxHash}`} target="_blank" rel="noopener noreferrer" className="text-[#00f0ff] hover:underline">View escrow on XRPL</a>
-            </p>
+            <div className="mt-4 p-4 rounded-lg bg-[#0d0d0d] border border-[#1a1a1a]">
+              <p className="font-mono text-sm uppercase tracking-wider text-[#f5f5f5] mb-1">Get your 1 XRP back</p>
+              <p className="text-sm text-[#b3b3b3] font-body mb-3">
+                Your 1 XRP is in escrow. <strong className="text-[#f5f5f5]">Refunds are done here in the app</strong> — the XRPL Explorer only shows the transaction; it has no refund button.                 After 5 minutes from the scan start (or ~1 minute in development) you can get your XRP back using the button below.
+              </p>
+              {scan.escrowRefundedAt ? (
+                <p className="text-sm text-[#4ade80] font-body">1 XRP has been returned to your wallet.</p>
+              ) : scan.escrowCancelAfter && new Date(scan.escrowCancelAfter) > new Date() ? (
+                <p className="text-sm text-[#919191] font-body">
+                  Refund available after {new Date(scan.escrowCancelAfter).toLocaleString()}.
+                </p>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setRefundError(null);
+                      setRefundLoading(true);
+                      try {
+                        const res = await fetch(`/api/scan/${params.id}/refund-escrow`, { method: "POST" });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          setRefundError(data.error || "Refund failed");
+                          return;
+                        }
+                        fetchScan();
+                      } finally {
+                        setRefundLoading(false);
+                      }
+                    }}
+                    disabled={refundLoading}
+                    className="font-mono text-xs uppercase tracking-wider px-4 py-2 rounded bg-[#00f0ff] text-[#0a0a0a] hover:bg-[#00d4e6] disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                  >
+                    {refundLoading ? "Refunding…" : "Get my 1 XRP back"}
+                  </button>
+                  {refundError && (
+                    <p className="text-sm text-[#ff3b5c] font-body mt-2" role="alert">{refundError}</p>
+                  )}
+                </>
+              )}
+              <p className="text-xs text-[#919191] font-body mt-3">
+                <a href={`https://testnet.xrpl.org/transactions/${scan.escrowTxHash}`} target="_blank" rel="noopener noreferrer" className="text-[#00f0ff] hover:underline">View escrow on XRPL</a> (for reference only)
+              </p>
+            </div>
           )}
         </div>
       )}

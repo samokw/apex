@@ -19,7 +19,10 @@ import {
 export async function POST(req: NextRequest) {
   const session = await getApexSession();
   if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Sign in required. If you just reset the database, sign out and sign in again." },
+      { status: 401 }
+    );
   }
 
   const { action, paymentType, scanId, paymentId } = await req.json();

@@ -1,0 +1,1 @@
+-- No-op: Payment scanId and escrow columns were already added in migration 20260221223223_apex.

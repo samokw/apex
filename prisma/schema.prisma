@@ -48,6 +48,7 @@ model Scan {
   escrowOfferSequence Int?
   escrowTxHash        String?
   escrowCancelAfter   DateTime?
+  escrowRefundedAt    DateTime?  // set when user got 1 XRP back after failed scan
 }
 
 model Violation {

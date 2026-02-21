@@ -3,7 +3,9 @@ import { getXrplClient, getExplorerUrl } from "./xrpl";
 
 const RIPPLE_EPOCH_SECONDS = 946684800; // Jan 1, 2000 00:00:00 UTC
 const FINISH_AFTER_SECONDS = 45; // ~45 sec — Apex can release after this
-const CANCEL_AFTER_SECONDS = 300; // 5 min — user can cancel and reclaim XRP
+// CancelAfter must be > FinishAfter. In dev use 60s so refund test is quick (still > 45s)
+const CANCEL_AFTER_SECONDS =
+  process.env.NODE_ENV === "development" ? 60 : 300;
 
 export const ESCROW_AMOUNTS: Record<string, string> = {
   scan: "1",
@@ -124,26 +126,28 @@ export async function finishEscrow(
 }
 
 /**
- * Return escrowed XRP to the owner (call when scan failed and CancelAfter has passed). Any account may submit.
+ * Return escrowed XRP to the owner (call when scan failed and CancelAfter has passed).
+ * Must be signed by the escrow owner (their key); XRPL returns tecNO_PERMISSION otherwise.
  */
 export async function cancelEscrow(
   owner: string,
-  offerSequence: number
+  offerSequence: number,
+  ownerSeed: string
 ): Promise<{ txHash: string }> {
-  if (!APEX_WALLET_SEED) {
-    throw new Error("APEX_XRPL_SEED / XRPL_WALLET_SEED not configured");
-  }
   const client = await getXrplClient();
   try {
-    const apexWallet = Wallet.fromSeed(APEX_WALLET_SEED);
+    const ownerWallet = Wallet.fromSeed(ownerSeed);
+    if (ownerWallet.address !== owner) {
+      throw new Error("Owner seed does not match escrow owner address");
+    }
     const escrowCancel = {
       TransactionType: "EscrowCancel",
-      Account: apexWallet.address,
+      Account: ownerWallet.address,
       Owner: owner,
       OfferSequence: offerSequence,
     };
     const prepared = await client.autofill(escrowCancel as never);
-    const signed = apexWallet.sign(prepared as never);
+    const signed = ownerWallet.sign(prepared as never);
     const result = await client.submitAndWait(signed.tx_blob);
     const txResult = (result.result.meta as { TransactionResult?: string })
       ?.TransactionResult;

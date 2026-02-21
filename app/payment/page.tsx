@@ -44,8 +44,14 @@ export default function PaymentPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "create-wallet" }),
+        credentials: "include",
       });
       const data = await res.json();
+      if (res.status === 401) {
+        setError(data.error || "Please sign in. If you reset the database, sign out and sign in again.");
+        setActionLoading(null);
+        return;
+      }
       if (data.error) {
         setError(data.error);
       } else {
