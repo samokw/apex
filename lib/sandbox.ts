@@ -3,9 +3,18 @@ import path from "path";
 import fs from "fs/promises";
 import os from "os";
 
-const docker = new Docker({
-  socketPath: process.env.DOCKER_SOCKET || "/var/run/docker.sock",
-});
+// Windows Docker Desktop uses a named pipe; Linux/macOS use a Unix socket.
+// Prefer DOCKER_SOCKET so it works when server runs in WSL or process.platform is wrong.
+const WINDOWS_PIPE = "//./pipe/docker_engine";
+const UNIX_SOCKET = "/var/run/docker.sock";
+const defaultSocket =
+  process.platform === "win32" ? WINDOWS_PIPE : UNIX_SOCKET;
+const socketPath =
+  process.env.DOCKER_SOCKET ||
+  (process.env.DOCKER_HOST?.startsWith("npipe://") ? WINDOWS_PIPE : null) ||
+  defaultSocket;
+
+const docker = new Docker({ socketPath });
 
 const SCANNER_IMAGE = process.env.SCANNER_IMAGE || "apex-scanner:latest";
 

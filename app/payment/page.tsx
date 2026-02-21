@@ -87,8 +87,8 @@ export default function PaymentPage() {
     setActionLoading(null);
   };
 
+  // Scans use escrow (1 XRP locked when you run a scan from Repos), so no "Pay for Scan" here.
   const paymentTiers = [
-    { type: "scan", label: "Scan", amount: "1", desc: "Full accessibility audit" },
     { type: "report", label: "Report", amount: "0.5", desc: "AODA compliance report" },
     { type: "pr-credit", label: "PR", amount: "2", desc: "Remediation + pull request" },
   ];
@@ -104,8 +104,11 @@ export default function PaymentPage() {
         <h1 className="font-editorial text-[clamp(2rem,4vw,3.5rem)] italic leading-tight mb-2">
           Wallet
         </h1>
-        <p className="font-body text-sm text-[#b3b3b3] mb-4">
+        <p className="font-body text-sm text-[#b3b3b3] mb-2">
           Pay per scan with XRP micropayments on the XRPL Testnet.
+        </p>
+        <p className="font-body text-xs text-[#919191] mb-4 max-w-xl">
+          <strong className="text-[#b3b3b3]">Your wallet</strong> (created below) is where you pay from. When you click Pay, XRP is sent from your wallet to <strong className="text-[#b3b3b3]">Apex&apos;s wallet</strong> (configured on the server). You never use your own .env wallet here — that&apos;s for the server to receive payments.
         </p>
         <hr className="editorial-rule-thick mb-8" aria-hidden="true" />
 
@@ -162,11 +165,12 @@ export default function PaymentPage() {
           </div>
         )}
 
-        {/* Payment tiers — editorial pricing */}
+        {/* Payment tiers — Report & PR; scans use escrow when you run them from Repos */}
         {wallet?.address && (
           <div className="mb-8">
-            <div className="font-mono text-xs uppercase tracking-widest text-[#919191] mb-4">Purchase Credits</div>
-            <div className="grid grid-cols-3 gap-0 border-t border-[#1a1a1a]">
+            <div className="font-mono text-xs uppercase tracking-widest text-[#919191] mb-2">Purchase credits</div>
+            <p className="font-body text-xs text-[#919191] mb-4">Scans use escrow: 1 XRP is locked when you run a scan from the Repos tab (released to Apex on success). Pay below for Report or PR.</p>
+            <div className="grid grid-cols-2 gap-0 border-t border-[#1a1a1a]">
               {paymentTiers.map((tier, i) => (
                 <div key={tier.type} className={`py-10 px-6 md:px-8 flex flex-col justify-between ${i > 0 ? "border-l border-[#1a1a1a]" : ""}`}>
                   <div>

@@ -42,6 +42,11 @@ model Scan {
   violations    Violation[]
   fixes         Fix[]
   pullRequest   PullRequest?
+  // XRPL escrow: 1 XRP locked when scan starts; released to Apex on success, returnable by user after escrowCancelAfter on failure
+  escrowOwner         String?
+  escrowOfferSequence Int?
+  escrowTxHash        String?
+  escrowCancelAfter   DateTime?
 }
 
 model Violation {

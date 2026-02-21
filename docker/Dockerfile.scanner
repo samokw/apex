@@ -1,23 +1,22 @@
-FROM node:20-slim
+# Use official Playwright image so Chromium and system deps are pre-installed (no long download).
+# See https://playwright.dev/docs/docker for available tags (e.g. v1.49.0-noble, v1.47.0-jammy).
+FROM mcr.microsoft.com/playwright:v1.49.0-noble AS base
 
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    wget \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
+# Install git for cloning repos
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /scanner && cd /scanner && \
-    npm init -y && \
-    npm install playwright @axe-core/playwright && \
-    npx playwright install --with-deps chromium
+# OpenCode CLI for AI fixes (optional; scan still works if this fails)
+RUN npm install -g opencode-ai@latest || true
 
-RUN npm install -g opencode-ai@latest
+# Scanner script runs with Node and requires('playwright'), require('@axe-core/playwright').
+# Base image has browsers; we add the npm packages and set NODE_PATH so they're found.
+RUN mkdir -p /scanner && cd /scanner \
+  && npm init -y \
+  && npm install playwright@1.49 @axe-core/playwright
 
 ENV NODE_PATH=/scanner/node_modules
-
 WORKDIR /workspace
-
 RUN mkdir -p /output
 
 CMD ["sleep", "3600"]
