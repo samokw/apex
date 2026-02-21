@@ -184,9 +184,9 @@ function checkPort(port) {
 
   await context.close();
   await browser.close();
-  if (devServer) devServer.kill();
   if (staticServer) staticServer.close();
   console.log('Scan complete.');
+  process.exit(0);
 })().catch(err => {
   console.error('Scan error:', err.message);
   const fs = require('fs');

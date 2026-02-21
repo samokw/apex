@@ -85,7 +85,8 @@ export async function createSandbox(
 
 export async function execInSandbox(
   sandbox: SandboxInstance,
-  command: string[]
+  command: string[],
+  timeoutMs = 120_000,
 ): Promise<{ stdout: string; exitCode: number }> {
   const container = docker.getContainer(sandbox.containerId);
 
@@ -100,9 +101,23 @@ export async function execInSandbox(
 
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      stream.destroy();
+      resolve({
+        stdout: Buffer.concat(chunks).toString("utf-8"),
+        exitCode: -1,
+      });
+    }, timeoutMs);
 
     stream.on("data", (chunk: Buffer) => chunks.push(chunk));
     stream.on("end", async () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       try {
         const inspect = await exec.inspect();
         resolve({
@@ -113,7 +128,12 @@ export async function execInSandbox(
         reject(err);
       }
     });
-    stream.on("error", reject);
+    stream.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
   });
 }
 
