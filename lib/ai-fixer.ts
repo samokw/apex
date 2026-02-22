@@ -46,7 +46,7 @@ interface PostFixScanResult {
   url: string;
   timestamp: string;
 }
-const DEFAULT_OPENCODE_MODEL = "opencode/glm-5-free";
+const DEFAULT_OPENCODE_MODEL = "anthropic/claude-sonnet-4-20250514";
 const DEFAULT_OPENCODE_TIMEOUT_SECONDS = 90;
 const DEFAULT_OPENCODE_TOTAL_TIMEOUT_SECONDS = 240;
 const DEFAULT_OPENCODE_PROMPT_BATCH_SIZE = 1;

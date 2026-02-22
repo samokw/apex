@@ -134,7 +134,7 @@ function ScanPipeline({ status }: { status: string }) {
               >
                 <PipelineIcon icon={step.icon} active={active} done={done} />
               </div>
-              <span className={`font-mono text-[10px] uppercase tracking-widest transition-colors duration-500 ${
+              <span className={`font-mono text-[10px] uppercase tracking-wider transition-colors duration-500 ${
                 done ? "text-[#4ade80]" : active ? "text-[#00f0ff]" : "text-[#888]"
               }`}>
                 {step.label}
@@ -460,7 +460,7 @@ export default function ScanDetailPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <h1 className="font-editorial text-[clamp(1.5rem,3vw,2.5rem)] italic leading-tight">
+            <h1 className="font-editorial text-[clamp(1.5rem,3vw,2.5rem)] italic leading-tight pr-2">
               {scan.repoOwner}<span className="text-[#919191]">/</span>{scan.repoName}
             </h1>
           </div>
@@ -554,7 +554,7 @@ export default function ScanDetailPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-0 border-t border-[#1a1a1a]">
             <div className="py-8 md:pr-8">
               <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">Score Before</div>
-              <div className="font-editorial text-4xl italic" style={{
+              <div className="font-editorial text-4xl italic pr-2" style={{
                 color: (scan.score ?? 0) >= 90 ? "#4ade80" : (scan.score ?? 0) >= 70 ? "#ffc53d" : "#ff3b5c"
               }}>
                 {scan.score}
@@ -563,16 +563,16 @@ export default function ScanDetailPage() {
             {scan.scoreAfter !== null && (
               <div className="py-8 md:px-8 border-l border-[#1a1a1a]">
                 <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">Score After</div>
-                <div className="font-editorial text-4xl italic text-[#4ade80]">{scan.scoreAfter}</div>
+                <div className="font-editorial text-4xl italic text-[#4ade80] pr-2">{scan.scoreAfter}</div>
               </div>
             )}
             <div className="py-8 md:px-8 border-l border-[#1a1a1a]">
               <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">Violations</div>
-              <div className="font-editorial text-4xl italic">{scan.violations.length}</div>
+              <div className="font-editorial text-4xl italic pr-2">{scan.violations.length}</div>
             </div>
             <div className="py-8 md:pl-8 border-l border-[#1a1a1a]">
               <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">Fixes</div>
-              <div className="font-editorial text-4xl italic">{scan.fixes.length}</div>
+              <div className="font-editorial text-4xl italic pr-2">{scan.fixes.length}</div>
             </div>
           </div>
 

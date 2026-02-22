@@ -32,7 +32,10 @@ export function Navbar({ username, avatarUrl }: NavbarProps) {
 
           <div className="hidden md:flex items-center gap-0 border-l border-[#1a1a1a] pl-6">
             {links.map((link, i) => {
-              const active = pathname === link.href || pathname.startsWith(link.href + "/");
+              const active =
+                link.href === "/dashboard"
+                  ? pathname === "/dashboard"
+                  : pathname === link.href || pathname.startsWith(link.href + "/");
               return (
                 <Link
                   key={link.href}

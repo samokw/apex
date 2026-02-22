@@ -28,7 +28,7 @@ export default async function DashboardPage() {
   return (
     <div>
       <div className="flex items-baseline justify-between mb-4">
-        <h1 className="font-editorial text-[clamp(2rem,4vw,3.5rem)] italic leading-tight">
+        <h1 className="font-editorial text-[clamp(2rem,4vw,3.5rem)] italic leading-tight pr-2">
           Dashboard
         </h1>
         <Link
@@ -49,7 +49,7 @@ export default async function DashboardPage() {
 
       {scans.length === 0 ? (
         <div className="py-20 text-center border-t border-[#1a1a1a]">
-          <h2 className="font-editorial text-2xl italic mb-3">No scans yet</h2>
+          <h2 className="font-editorial text-2xl italic mb-3 pr-2">No scans yet</h2>
           <p className="font-body text-sm text-[#b3b3b3] mb-8 max-w-sm mx-auto">
             Select a repository to run your first accessibility scan.
           </p>
@@ -76,7 +76,7 @@ export default async function DashboardPage() {
                 <div className="grid grid-cols-12 gap-4 py-6 items-center">
                   <div className="col-span-5 md:col-span-4">
                     <Link href={`/dashboard/scan/${scan.id}`}>
-                      <h3 className="font-editorial text-lg italic group-hover:text-[#00f0ff] transition-colors truncate">
+                      <h3 className="font-editorial text-lg italic group-hover:text-[#00f0ff] transition-colors truncate pr-2">
                         {scan.repoOwner}/{scan.repoName}
                       </h3>
                     </Link>
@@ -92,7 +92,7 @@ export default async function DashboardPage() {
                   <div className="col-span-2 md:col-span-2 text-center">
                     {scan.score !== null ? (
                       <div>
-                        <div className="font-editorial text-2xl italic" style={{
+                        <div className="font-editorial text-2xl italic pr-2" style={{
                           color: (scan.score ?? 0) >= 90 ? "#4ade80" : (scan.score ?? 0) >= 70 ? "#ffc53d" : "#ff3b5c"
                         }}>
                           {scan.score}

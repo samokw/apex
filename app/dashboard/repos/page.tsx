@@ -85,7 +85,7 @@ export default function ReposPage() {
 
   return (
     <div>
-      <h1 className="font-editorial text-[clamp(2rem,4vw,3.5rem)] italic leading-tight mb-4">
+      <h1 className="font-editorial text-[clamp(2rem,4vw,3.5rem)] italic leading-tight mb-4 pr-2">
         Repositories
       </h1>
       <hr className="editorial-rule-thick mb-8" aria-hidden="true" />
@@ -156,7 +156,7 @@ export default function ReposPage() {
               <div className="flex items-center justify-between py-5">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-3">
-                    <h3 className="font-editorial text-lg italic group-hover:text-[#00f0ff] transition-colors truncate">
+                    <h3 className="font-editorial text-lg italic group-hover:text-[#00f0ff] transition-colors truncate pr-2">
                       {repo.name}
                     </h3>
                     {repo.private && (
