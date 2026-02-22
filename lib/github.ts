@@ -117,3 +117,58 @@ export async function commitFile(
     sha,
   });
 }
+
+export async function applyFixToFile(
+  accessToken: string,
+  owner: string,
+  repo: string,
+  branch: string,
+  filePath: string,
+  originalCode: string,
+  fixedCode: string,
+  message: string,
+) {
+  const octokit = createOctokit(accessToken);
+
+  let sha: string | undefined;
+  let existingContent = "";
+
+  try {
+    const { data } = await octokit.repos.getContent({
+      owner,
+      repo,
+      path: filePath,
+      ref: branch,
+    });
+    if (!Array.isArray(data) && data.type === "file") {
+      sha = data.sha;
+      existingContent = Buffer.from(data.content, "base64").toString("utf-8");
+    }
+  } catch {
+    return;
+  }
+
+  if (!existingContent.includes(originalCode)) {
+    const normalizedExisting = existingContent.replace(/\r\n/g, "\n");
+    const normalizedOriginal = originalCode.replace(/\r\n/g, "\n");
+    if (normalizedExisting.includes(normalizedOriginal)) {
+      existingContent = normalizedExisting;
+      originalCode = normalizedOriginal;
+    } else {
+      console.warn(`[GitHub] Could not find originalCode in ${filePath}, skipping`);
+      return;
+    }
+  }
+
+  const updatedContent = existingContent.replace(originalCode, fixedCode);
+
+  await octokit.repos.createOrUpdateFileContents({
+    owner,
+    repo,
+    path: filePath,
+    message,
+    content: Buffer.from(updatedContent).toString("base64"),
+    branch,
+    sha,
+  });
+}

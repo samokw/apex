@@ -2,6 +2,7 @@ import { getApexSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { PrLink } from "@/components/pr-link";
 
 export default async function DashboardPage() {
   const session = await getApexSession();
@@ -68,18 +69,17 @@ export default async function DashboardPage() {
           {scans.map((scan) => {
             const st = statusConfig[scan.status] ?? statusConfig.pending;
             return (
-              <div
+              <Link
                 key={scan.id}
+                href={`/dashboard/scan/${scan.id}`}
                 className="group block border-t border-[#1a1a1a] hover:border-[#00f0ff] transition-colors"
                 role="listitem"
               >
                 <div className="grid grid-cols-12 gap-4 py-6 items-center">
                   <div className="col-span-5 md:col-span-4">
-                    <Link href={`/dashboard/scan/${scan.id}`}>
-                      <h3 className="font-editorial text-lg italic group-hover:text-[#00f0ff] transition-colors truncate">
-                        {scan.repoOwner}/{scan.repoName}
-                      </h3>
-                    </Link>
+                    <h3 className="font-editorial text-lg italic group-hover:text-[#00f0ff] transition-colors truncate">
+                      {scan.repoOwner}/{scan.repoName}
+                    </h3>
                     <p className="text-xs text-[#919191] font-mono mt-1">
                       {new Date(scan.createdAt).toLocaleDateString("en-CA", {
                         year: "numeric",
@@ -128,29 +128,15 @@ export default async function DashboardPage() {
                     </span>
 
                     {scan.pullRequest && (
-                      <a
-                        href={scan.pullRequest.prUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-mono text-xs text-[#00f0ff] hover:underline"
-                        aria-label={`View pull request #${scan.pullRequest.prNumber}`}
-                      >
-                        PR #{scan.pullRequest.prNumber}
-                      </a>
+                      <PrLink href={scan.pullRequest.prUrl} prNumber={scan.pullRequest.prNumber} />
                     )}
 
-                    <Link
-                      href={`/dashboard/scan/${scan.id}`}
-                      className="inline-flex items-center text-[#919191] hover:text-[#00f0ff] transition-colors"
-                      aria-label={`View details for ${scan.repoOwner}/${scan.repoName}`}
-                    >
-                      <svg className="w-4 h-4 group-hover:translate-x-1 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </Link>
+                    <svg className="w-4 h-4 text-[#919191] group-hover:text-[#00f0ff] group-hover:translate-x-1 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
+                    </svg>
                   </div>
                 </div>
-              </div>
+              </Link>
             );
           })}
           <hr className="border-[#1a1a1a]" aria-hidden="true" />

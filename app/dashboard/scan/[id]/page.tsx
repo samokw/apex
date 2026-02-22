@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { SeverityBadge } from "@/components/severity-badge";
 import Link from "next/link";
 import ReactDiffViewer from "react-diff-viewer-continued";
@@ -46,9 +46,27 @@ interface Scan {
   afterScreenshot: string | null;
   errorMessage: string | null;
   createdAt: string;
+  escrowTxHash?: string | null;
+  escrowCancelAfter?: string | null;
+  escrowRefundedAt?: string | null;
   violations: Violation[];
   fixes: Fix[];
   pullRequest: PullRequest | null;
+}
+
+interface FixWithViolation {
+  fix: Fix;
+  violation: Violation;
+}
+
+interface FixGroup {
+  key: string;
+  ruleId: string;
+  impact: string;
+  description: string;
+  wcagCriteria: string | null;
+  aodaRelevant: boolean;
+  items: FixWithViolation[];
 }
 
 /* ── Pipeline steps ── */
@@ -59,6 +77,13 @@ const PIPELINE_STEPS = [
   { key: "fixing",  label: "AI Fixing", icon: "sparkle" },
   { key: "complete", label: "Done",    icon: "check" },
 ] as const;
+
+const IMPACT_ORDER: Record<string, number> = {
+  critical: 0,
+  serious: 1,
+  moderate: 2,
+  minor: 3,
+};
 
 function PipelineIcon({ icon, active, done }: { icon: string; active: boolean; done: boolean }) {
   const color = done ? "#4ade80" : active ? "#00f0ff" : "#777";
@@ -289,24 +314,59 @@ function useAnnounce() {
 export default function ScanDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [scan, setScan] = useState<Scan | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [reportPaid, setReportPaid] = useState(false);
+  const [prPaid, setPrPaid] = useState(false);
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundError, setRefundError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState("score");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const prevStatusRef = useRef<string | null>(null);
   const { announce, Announcer } = useAnnounce();
 
   const fetchScan = useCallback(async () => {
-    const res = await fetch(`/api/scan/${params.id}`);
+    const res = await fetch(`/api/scan/${params.id}?_=${Date.now()}`, {
+      cache: "no-store",
+    });
     const data = await res.json();
     setScan(data.scan);
     setLoading(false);
   }, [params.id]);
 
+  const checkPayments = useCallback(async () => {
+    const [reportRes, prRes] = await Promise.all([
+      fetch("/api/payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "check-payment", paymentType: "report", scanId: params.id }),
+      }),
+      fetch("/api/payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "check-payment", paymentType: "pr-credit", scanId: params.id }),
+      }),
+    ]);
+    const reportData = await reportRes.json();
+    const prData = await prRes.json();
+    setReportPaid(!!reportData.paid);
+    setPrPaid(!!prData.paid);
+  }, [params.id]);
+
   useEffect(() => {
     fetchScan();
-  }, [fetchScan]);
+    checkPayments();
+  }, [fetchScan, checkPayments]);
+
+  useEffect(() => {
+    const required = searchParams.get("paymentRequired");
+    if (required === "report") {
+      setPaymentError("Payment required to view the report. Click 'Report (0.5 XRP)' to pay with escrow.");
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const isInProg = scan && ["pending", "cloning", "scanning", "fixing"].includes(scan.status);
@@ -381,16 +441,70 @@ export default function ScanDetailPage() {
     fetchScan();
   };
 
-  const createPR = async () => {
+  const payAndNavigateReport = async () => {
+    if (reportPaid) {
+      router.push(`/dashboard/scan/${params.id}/report`);
+      return;
+    }
+    setActionLoading("report");
+    setPaymentError(null);
+    try {
+      const res = await fetch("/api/payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create-escrow",
+          paymentType: "report",
+          scanId: params.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPaymentError(data.error || "Payment failed");
+        setActionLoading(null);
+        return;
+      }
+      setReportPaid(true);
+      router.push(`/dashboard/scan/${params.id}/report`);
+    } catch {
+      setPaymentError("Payment failed. Please try again.");
+      setActionLoading(null);
+    }
+  };
+
+  const payAndCreatePR = async () => {
     setActionLoading("pr");
-    const res = await fetch("/api/pr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scanId: params.id }),
-    });
-    const data = await res.json();
-    if (data.prUrl) {
-      fetchScan();
+    setPaymentError(null);
+    try {
+      const payRes = await fetch("/api/payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create-escrow",
+          paymentType: "pr-credit",
+          scanId: params.id,
+        }),
+      });
+      const payData = await payRes.json();
+      if (!payRes.ok) {
+        setPaymentError(payData.error || "Payment failed");
+        setActionLoading(null);
+        return;
+      }
+
+      const prRes = await fetch("/api/pr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scanId: params.id, paymentId: payData.paymentId }),
+      });
+      const prData = await prRes.json();
+      if (prData.prUrl) {
+        fetchScan();
+      } else if (prData.error) {
+        setPaymentError(`PR failed: ${prData.error}. Your 2 XRP escrow can be cancelled after 5 min.`);
+      }
+    } catch {
+      setPaymentError("PR creation failed. Your escrow can be cancelled after 5 min.");
     }
     setActionLoading(null);
   };
@@ -424,12 +538,48 @@ export default function ScanDetailPage() {
   const isInProgress = ["pending", "cloning", "scanning", "fixing"].includes(scan.status);
   const acceptedFixes = scan.fixes.filter((f) => f.status === "accepted");
   const violationsById = new Map(scan.violations.map((violation) => [violation.id, violation]));
-  const fixesByFile = scan.fixes.reduce<Record<string, Fix[]>>((acc, fix) => {
-    const key = fix.filePath || "(unknown file)";
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(fix);
-    return acc;
-  }, {});
+  const groupedFixes = Object.values(
+    scan.fixes.reduce<Record<string, FixGroup>>((acc, fix) => {
+      const violation = violationsById.get(fix.violationId);
+      if (!violation) return acc;
+
+      const groupKey = [
+        violation.ruleId,
+        violation.impact,
+        violation.description,
+        violation.wcagCriteria || "",
+      ].join("::");
+
+      if (!acc[groupKey]) {
+        acc[groupKey] = {
+          key: groupKey,
+          ruleId: violation.ruleId,
+          impact: violation.impact,
+          description: violation.description,
+          wcagCriteria: violation.wcagCriteria,
+          aodaRelevant: violation.aodaRelevant,
+          items: [],
+        };
+      }
+
+      acc[groupKey].items.push({ fix, violation });
+      return acc;
+    }, {})
+  )
+    .map((group) => ({
+      ...group,
+      items: [...group.items].sort(
+        (a, b) =>
+          a.fix.filePath.localeCompare(b.fix.filePath) ||
+          a.fix.id.localeCompare(b.fix.id)
+      ),
+    }))
+    .sort(
+      (a, b) =>
+        (IMPACT_ORDER[a.impact] ?? 99) - (IMPACT_ORDER[b.impact] ?? 99) ||
+        b.items.length - a.items.length ||
+        a.ruleId.localeCompare(b.ruleId)
+    );
   const unpatchedViolations = scan.violations.filter(
     (violation) => !scan.fixes.some((fix) => fix.violationId === violation.id)
   );
@@ -482,23 +632,37 @@ export default function ScanDetailPage() {
 
           {acceptedFixes.length > 0 && !scan.pullRequest && (
             <button
-              onClick={createPR}
+              onClick={payAndCreatePR}
               disabled={actionLoading !== null}
               className="font-mono text-xs uppercase tracking-wider px-5 py-3 border border-[#4ade80] text-[#4ade80] hover:bg-[#4ade80] hover:text-black disabled:opacity-50 transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4ade80]"
             >
-              {actionLoading === "pr" ? "Creating PR..." : `Create PR (${acceptedFixes.length})`}
+              {actionLoading === "pr" ? "Creating PR..." : prPaid ? `Create PR (${acceptedFixes.length})` : `Create PR \u2014 2 XRP (${acceptedFixes.length})`}
             </button>
           )}
 
-          <Link
-            href={`/dashboard/scan/${scan.id}/report`}
-            className="font-mono text-xs uppercase tracking-wider px-5 py-3 border border-[#1a1a1a] text-[#919191] hover:border-[#00f0ff] hover:text-[#00f0ff] transition-all min-h-[44px] flex items-center"
+          <button
+            onClick={payAndNavigateReport}
+            disabled={actionLoading !== null}
+            className="font-mono text-xs uppercase tracking-wider px-5 py-3 border border-[#1a1a1a] text-[#919191] hover:border-[#00f0ff] hover:text-[#00f0ff] disabled:opacity-50 transition-all min-h-[44px] flex items-center"
           >
-            Report
-          </Link>
+            {actionLoading === "report" ? "Paying..." : reportPaid ? "View Report" : "Report \u2014 0.5 XRP"}
+          </button>
         </div>
       </div>
       <hr className="editorial-rule-thick mb-6" aria-hidden="true" />
+
+      {/* ── Payment error ── */}
+      {paymentError && (
+        <div className="py-4 px-5 mb-6 border border-[#ff3b5c33] bg-[#ff3b5c08]" role="alert">
+          <p className="text-sm text-[#ff3b5c] font-body">{paymentError}</p>
+          <button
+            onClick={() => setPaymentError(null)}
+            className="text-xs text-[#919191] hover:text-[#f5f5f5] font-mono mt-2 uppercase tracking-wider"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* ── Sticky section nav ── */}
       {!isInProgress && sections.filter((s) => s.show).length > 1 && (
@@ -522,6 +686,52 @@ export default function ScanDetailPage() {
         <div className="py-6 mb-8 border-l-2 border-[#ff3b5c] pl-5 bg-[#ff3b5c08] rounded-r slide-up" role="alert">
           <div className="font-mono text-sm uppercase tracking-wider text-[#ff3b5c] mb-1">Scan Failed</div>
           <p className="text-sm text-[#b3b3b3] font-body">{scan.errorMessage || "An unknown error occurred"}</p>
+          {scan.escrowTxHash && (
+            <div className="mt-4 p-4 rounded-lg bg-[#0d0d0d] border border-[#1a1a1a]">
+              <p className="font-mono text-sm uppercase tracking-wider text-[#f5f5f5] mb-1">Get your 1 XRP back</p>
+              <p className="text-sm text-[#b3b3b3] font-body mb-3">
+                Your 1 XRP is in escrow. <strong className="text-[#f5f5f5]">Refunds are done here in the app</strong> \u2014 the XRPL Explorer only shows the transaction; it has no refund button. After 5 minutes from the scan start (or ~1 minute in development) you can get your XRP back using the button below.
+              </p>
+              {scan.escrowRefundedAt ? (
+                <p className="text-sm text-[#4ade80] font-body">1 XRP has been returned to your wallet.</p>
+              ) : scan.escrowCancelAfter && new Date(scan.escrowCancelAfter) > new Date() ? (
+                <p className="text-sm text-[#919191] font-body">
+                  Refund available after {new Date(scan.escrowCancelAfter).toLocaleString()}.
+                </p>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setRefundError(null);
+                      setRefundLoading(true);
+                      try {
+                        const res = await fetch(`/api/scan/${params.id}/refund-escrow`, { method: "POST" });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          setRefundError(data.error || "Refund failed");
+                          return;
+                        }
+                        fetchScan();
+                      } finally {
+                        setRefundLoading(false);
+                      }
+                    }}
+                    disabled={refundLoading}
+                    className="font-mono text-xs uppercase tracking-wider px-4 py-2 rounded bg-[#00f0ff] text-[#0a0a0a] hover:bg-[#00d4e6] disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                  >
+                    {refundLoading ? "Refunding\u2026" : "Get my 1 XRP back"}
+                  </button>
+                  {refundError && (
+                    <p className="text-sm text-[#ff3b5c] font-body mt-2" role="alert">{refundError}</p>
+                  )}
+                </>
+              )}
+              <p className="text-xs text-[#919191] font-body mt-3">
+                <a href={`https://testnet.xrpl.org/transactions/${scan.escrowTxHash}`} target="_blank" rel="noopener noreferrer" className="text-[#00f0ff] hover:underline">View escrow on XRPL</a> (for reference only)
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -598,6 +808,8 @@ export default function ScanDetailPage() {
                 <img
                   src={`data:image/png;base64,${scan.beforeScreenshot}`}
                   alt="Screenshot of the application before accessibility fixes"
+                  loading="lazy"
+                  decoding="async"
                   className="border border-[#1a1a1a] w-full"
                 />
               </div>
@@ -608,6 +820,8 @@ export default function ScanDetailPage() {
                 <img
                   src={`data:image/png;base64,${scan.afterScreenshot}`}
                   alt="Screenshot of the application after accessibility fixes"
+                  loading="lazy"
+                  decoding="async"
                   className="border border-[#1a1a1a] w-full"
                 />
               </div>
@@ -616,130 +830,133 @@ export default function ScanDetailPage() {
         </section>
       )}
 
-      {/* ── Per-file fix review ── */}
+      {/* ── Grouped fix review ── */}
       {scan.fixes.length > 0 && (
         <section id="fixes" ref={registerSection("fixes")} className="mb-10 scroll-mt-20 slide-up" style={{ animationDelay: "0.15s" }} aria-label={`Fix review, ${scan.fixes.length} fixes`} role="tabpanel">
           <div className="flex items-baseline justify-between mb-4">
             <h2 className="font-mono text-xs uppercase tracking-widest text-[#919191]">
-              Fix Review ({scan.fixes.length})
+              Fix Review By Violation ({scan.fixes.length})
             </h2>
           </div>
           <div className="space-y-6">
-            {Object.entries(fixesByFile).map(([filePath, fixes]) => (
-              <section key={filePath} className="border-2 border-[#1a1a1a]" aria-label={`Fixes for ${filePath}`}>
+            {groupedFixes.map((group) => (
+              <section key={group.key} className="border-2 border-[#1a1a1a]" aria-label={`Fixes for ${group.ruleId}`}>
                 <div className="px-5 py-4 border-b border-[#1a1a1a] bg-[#0a0a0a]">
-                  <p className="font-mono text-[11px] uppercase tracking-widest text-[#919191]">File</p>
-                  <p className="font-mono text-sm text-[#f5f5f5] mt-1 break-all">{filePath}</p>
+                  <div className="flex flex-wrap items-center gap-3 mb-2">
+                    <SeverityBadge impact={group.impact} />
+                    <code className="text-xs text-[#919191] font-mono">{group.ruleId}</code>
+                    {group.aodaRelevant && (
+                      <span className="font-mono text-[11px] uppercase tracking-wider text-[#00f0ff] border-b border-[#00f0ff33]">
+                        AODA
+                      </span>
+                    )}
+                    <span className="font-mono text-[11px] uppercase tracking-wider text-[#919191]">
+                      {group.items.length} diff{group.items.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <p className="text-sm font-body mb-2">{group.description}</p>
+                  <p className="text-xs text-[#919191] font-mono">WCAG: {group.wcagCriteria || "N/A"}</p>
                 </div>
+
+                {(scan.beforeScreenshot || scan.afterScreenshot) && (
+                  <div className="px-5 py-5 border-b border-[#1a1a1a]">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {scan.beforeScreenshot && (
+                        <div>
+                          <p className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">Before</p>
+                          <img
+                            src={`data:image/png;base64,${scan.beforeScreenshot}`}
+                            alt={`Before screenshot for ${group.ruleId}`}
+                            loading="lazy"
+                            decoding="async"
+                            className="border border-[#1a1a1a] w-full"
+                          />
+                        </div>
+                      )}
+                      {scan.afterScreenshot && (
+                        <div>
+                          <p className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">After</p>
+                          <img
+                            src={`data:image/png;base64,${scan.afterScreenshot}`}
+                            alt={`After screenshot for ${group.ruleId}`}
+                            loading="lazy"
+                            decoding="async"
+                            className="border border-[#1a1a1a] w-full"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div>
-                  {fixes.map((fix) => {
-                    const violation = violationsById.get(fix.violationId);
-                    if (!violation) return null;
-
-                    return (
-                      <article key={fix.id} className="border-t first:border-t-0 border-[#1a1a1a]">
-                        <div className="px-5 py-5">
-                          <div className="flex flex-wrap items-start justify-between gap-4 mb-3">
-                            <div className="flex-1 min-w-[240px]">
-                              <div className="flex items-center gap-3 mb-2">
-                                <SeverityBadge impact={violation.impact} />
-                                <code className="text-xs text-[#919191] font-mono">{violation.ruleId}</code>
-                                {violation.aodaRelevant && (
-                                  <span className="font-mono text-[11px] uppercase tracking-wider text-[#00f0ff] border-b border-[#00f0ff33]">
-                                    AODA
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-sm font-body mb-2">{violation.description}</p>
-                              <p className="text-xs text-[#919191] font-mono">
-                                WCAG: {violation.wcagCriteria || "N/A"}
-                              </p>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => updateFixStatus(fix.id, "accepted")}
-                                aria-pressed={fix.status === "accepted"}
-                                className={`font-mono text-xs uppercase tracking-wider px-4 py-2 transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 ${
-                                  fix.status === "accepted"
-                                    ? "bg-[#4ade80] text-black border border-[#4ade80] focus-visible:ring-[#4ade80]"
-                                    : "text-[#4ade80] border border-[#4ade8033] hover:bg-[#4ade80] hover:text-black focus-visible:ring-[#4ade80]"
-                                }`}
-                                aria-label={`Accept fix for ${violation.ruleId}`}
-                              >
-                                Accept
-                              </button>
-                              <button
-                                onClick={() => updateFixStatus(fix.id, "rejected")}
-                                aria-pressed={fix.status === "rejected"}
-                                className={`font-mono text-xs uppercase tracking-wider px-4 py-2 transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 ${
-                                  fix.status === "rejected"
-                                    ? "bg-[#ff3b5c] text-black border border-[#ff3b5c] focus-visible:ring-[#ff3b5c]"
-                                    : "text-[#ff3b5c] border border-[#ff3b5c33] hover:bg-[#ff3b5c] hover:text-black focus-visible:ring-[#ff3b5c]"
-                                }`}
-                                aria-label={`Reject fix for ${violation.ruleId}`}
-                              >
-                                Reject
-                              </button>
-                            </div>
+                  {group.items.map(({ fix }) => (
+                    <article key={fix.id} className="border-t first:border-t-0 border-[#1a1a1a]">
+                      <div className="px-5 py-5">
+                        <div className="flex flex-wrap items-start justify-between gap-4 mb-3">
+                          <div className="flex-1 min-w-[240px]">
+                            <p className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">File</p>
+                            <p className="font-mono text-sm text-[#f5f5f5] break-all">{fix.filePath || "(unknown file)"}</p>
                           </div>
 
-                          {(scan.beforeScreenshot || scan.afterScreenshot) && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                              {scan.beforeScreenshot && (
-                                <div>
-                                  <p className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">Before</p>
-                                  <img
-                                    src={`data:image/png;base64,${scan.beforeScreenshot}`}
-                                    alt={`Before screenshot for ${violation.ruleId}`}
-                                    className="border border-[#1a1a1a] w-full"
-                                  />
-                                </div>
-                              )}
-                              {scan.afterScreenshot && (
-                                <div>
-                                  <p className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">After</p>
-                                  <img
-                                    src={`data:image/png;base64,${scan.afterScreenshot}`}
-                                    alt={`After screenshot for ${violation.ruleId}`}
-                                    className="border border-[#1a1a1a] w-full"
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {fix.explanation && (
-                            <div className="mb-3 text-xs text-[#b3b3b3] font-body">
-                              <strong className="text-[#f5f5f5] font-mono uppercase tracking-wider">Fix:</strong>{" "}
-                              {fix.explanation}
-                            </div>
-                          )}
-
-                          {fix.originalCode && fix.fixedCode ? (
-                            <div className="text-xs border border-[#1a1a1a]">
-                              <ReactDiffViewer
-                                oldValue={fix.originalCode}
-                                newValue={fix.fixedCode}
-                                splitView={true}
-                                useDarkTheme={true}
-                                leftTitle={`${fix.filePath} (original)`}
-                                rightTitle={`${fix.filePath} (fixed)`}
-                                styles={{
-                                  contentText: { fontFamily: "var(--font-jetbrains), monospace", fontSize: "12px" },
-                                  diffContainer: { background: "#0a0a0a" },
-                                }}
-                              />
-                            </div>
-                          ) : (
-                            <p className="font-mono text-xs text-[#919191]">
-                              Code diff unavailable for this fix.
-                            </p>
-                          )}
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => updateFixStatus(fix.id, "accepted")}
+                              aria-pressed={fix.status === "accepted"}
+                              className={`font-mono text-xs uppercase tracking-wider px-4 py-2 transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 ${
+                                fix.status === "accepted"
+                                  ? "bg-[#4ade80] text-black border border-[#4ade80] focus-visible:ring-[#4ade80]"
+                                  : "text-[#4ade80] border border-[#4ade8033] hover:bg-[#4ade80] hover:text-black focus-visible:ring-[#4ade80]"
+                              }`}
+                              aria-label={`Accept fix for ${group.ruleId}`}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              onClick={() => updateFixStatus(fix.id, "rejected")}
+                              aria-pressed={fix.status === "rejected"}
+                              className={`font-mono text-xs uppercase tracking-wider px-4 py-2 transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 ${
+                                fix.status === "rejected"
+                                  ? "bg-[#ff3b5c] text-black border border-[#ff3b5c] focus-visible:ring-[#ff3b5c]"
+                                  : "text-[#ff3b5c] border border-[#ff3b5c33] hover:bg-[#ff3b5c] hover:text-black focus-visible:ring-[#ff3b5c]"
+                              }`}
+                              aria-label={`Reject fix for ${group.ruleId}`}
+                            >
+                              Reject
+                            </button>
+                          </div>
                         </div>
-                      </article>
-                    );
-                  })}
+
+                        {fix.explanation && (
+                          <div className="mb-3 text-xs text-[#b3b3b3] font-body">
+                            <strong className="text-[#f5f5f5] font-mono uppercase tracking-wider">Fix:</strong>{" "}
+                            {fix.explanation}
+                          </div>
+                        )}
+
+                        {fix.originalCode && fix.fixedCode ? (
+                          <div className="text-xs border border-[#1a1a1a]">
+                            <ReactDiffViewer
+                              oldValue={fix.originalCode}
+                              newValue={fix.fixedCode}
+                              splitView={true}
+                              useDarkTheme={true}
+                              leftTitle={`${fix.filePath} (original)`}
+                              rightTitle={`${fix.filePath} (fixed)`}
+                              styles={{
+                                contentText: { fontFamily: "var(--font-jetbrains), monospace", fontSize: "12px" },
+                                diffContainer: { background: "#0a0a0a" },
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <p className="font-mono text-xs text-[#919191]">
+                            Code diff unavailable for this fix.
+                          </p>
+                        )}
+                      </div>
+                    </article>
+                  ))}
                 </div>
               </section>
             ))}

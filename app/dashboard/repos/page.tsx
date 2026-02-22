@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 interface Repo {
@@ -16,13 +17,33 @@ interface Repo {
   htmlUrl: string;
 }
 
+interface ScanCredits {
+  allowed: boolean;
+  hasWallet: boolean;
+  balance?: number;
+  minBalanceForEscrow?: number;
+  scanCreditsRemaining?: number | null;
+}
+
 export default function ReposPage() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [scanCredits, setScanCredits] = useState<ScanCredits | null>(null);
   const router = useRouter();
+
+  const fetchCanScan = () => {
+    fetch("/api/payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "can-scan" }),
+    })
+      .then((r) => r.json())
+      .then((data) => setScanCredits(data))
+      .catch(() => setScanCredits({ allowed: false, hasWallet: false, balance: 0 }));
+  };
 
   useEffect(() => {
     fetch("/api/repos")
@@ -35,9 +56,18 @@ export default function ReposPage() {
         setError("Failed to load repositories");
         setLoading(false);
       });
+    fetchCanScan();
+  }, []);
+
+  // Refetch credits when tab gets focus (e.g. after paying on Wallet tab)
+  useEffect(() => {
+    const onFocus = () => fetchCanScan();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   const startScan = async (repo: Repo) => {
+    setError(null);
     setScanning(repo.fullName);
     try {
       const res = await fetch("/api/scan", {
@@ -51,9 +81,11 @@ export default function ReposPage() {
       });
       const data = await res.json();
       if (data.scanId) {
+        fetchCanScan(); // deduct credit in UI
         router.push(`/dashboard/scan/${data.scanId}`);
       } else {
         setError(data.error || "Failed to start scan");
+        if (res.status === 402) fetchCanScan();
         setScanning(null);
       }
     } catch {
@@ -61,6 +93,8 @@ export default function ReposPage() {
       setScanning(null);
     }
   };
+
+  const canScan = scanCredits?.allowed ?? false;
 
   const filtered = repos.filter(
     (r) =>
@@ -127,12 +161,36 @@ export default function ReposPage() {
         </div>
       </div>
 
+      {scanCredits && !canScan && (
+        <div
+          className="mb-6 py-4 px-4 border border-[#00f0ff33] bg-[#00f0ff0a] text-sm font-body text-[#b3b3b3]"
+          role="status"
+        >
+          {!scanCredits.hasWallet ? (
+            <>Create a testnet wallet in the <Link href="/payment" className="text-[#00f0ff] hover:underline">Wallet</Link> tab to run scans. Each scan locks 1 XRP in escrow (released to Apex on success, or you can cancel after 30 min if it fails).</>
+          ) : (
+            <>You need at least {scanCredits.minBalanceForEscrow ?? 2} XRP to run a scan (1 XRP is locked in escrow per scan; the rest is a buffer for transaction fees). Get testnet XRP in the <Link href="/payment" className="text-[#00f0ff] hover:underline">Wallet</Link> tab.</>
+          )}
+        </div>
+      )}
+
+      {scanCredits != null && scanCredits.hasWallet && typeof scanCredits.balance === "number" && (
+        <div className="mb-4 font-mono text-xs text-[#919191]">
+          Balance: {scanCredits.balance} XRP — need 2+ to scan (1 XRP locked in escrow per scan + small buffer for fees)
+        </div>
+      )}
+
       {error && (
         <div
           className="mb-6 py-4 border-t border-b border-[#ff3b5c33] text-[#ff3b5c] text-sm font-body"
           role="alert"
         >
           {error}
+          {error.includes("Pay") && (
+            <span className="block mt-2">
+              <Link href="/payment" className="text-[#00f0ff] hover:underline">Go to Wallet →</Link>
+            </span>
+          )}
         </div>
       )}
 
@@ -186,9 +244,9 @@ export default function ReposPage() {
 
                 <button
                   onClick={() => startScan(repo)}
-                  disabled={scanning !== null}
+                  disabled={scanning !== null || !canScan}
                   className="ml-6 font-mono text-xs uppercase tracking-wider text-[#00f0ff] hover:text-[#f5f5f5] disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[44px] min-w-[44px] flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00f0ff] rounded-lg px-2"
-                  aria-label={`Scan ${repo.name}`}
+                  aria-label={canScan ? `Scan ${repo.name}` : `Need 2+ XRP in wallet to scan ${repo.name}`}
                   aria-busy={scanning === repo.fullName}
                 >
                   {scanning === repo.fullName ? (

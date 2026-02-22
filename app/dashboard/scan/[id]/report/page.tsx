@@ -2,6 +2,7 @@ import { getApexSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { generateReportSummary } from "@/lib/wcag";
 import { SeverityBadge } from "@/components/severity-badge";
+import { finishEscrow } from "@/lib/xrpl-escrow";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -25,6 +26,37 @@ export default async function ReportPage({
   });
 
   if (!scan) redirect("/dashboard");
+
+  // Verify report payment exists
+  const payment = await prisma.payment.findFirst({
+    where: {
+      userId: session.dbUserId,
+      scanId: id,
+      paymentType: "report",
+      status: { in: ["escrowed", "confirmed"] },
+    },
+  });
+
+  if (!payment) {
+    redirect(`/dashboard/scan/${id}?paymentRequired=report`);
+  }
+
+  // Auto-finish escrow on successful report view
+  if (
+    payment.status === "escrowed" &&
+    payment.escrowOwner &&
+    payment.escrowOfferSequence != null
+  ) {
+    try {
+      const result = await finishEscrow(payment.escrowOwner, payment.escrowOfferSequence);
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: "confirmed", txHash: result.txHash },
+      });
+    } catch (err) {
+      console.error("EscrowFinish failed (report viewed):", err);
+    }
+  }
 
   const report = generateReportSummary(
     scan.violations.map((v) => ({

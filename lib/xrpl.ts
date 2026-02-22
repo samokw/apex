@@ -8,7 +8,9 @@ const PAYMENT_AMOUNTS: Record<string, string> = {
   "pr-credit": "2",
 };
 
-const APEX_WALLET_SEED = process.env.APEX_XRPL_SEED;
+// Apex's receiving wallet: prefer your env names, fallback to APEX_XRPL_SEED
+const APEX_WALLET_SEED =
+  process.env.XRPL_WALLET_SEED || process.env.APEX_XRPL_SEED;
 
 export async function getXrplClient() {
   const client = new Client(TESTNET_URL);
@@ -53,7 +55,11 @@ export async function submitPayment(
   const amount = PAYMENT_AMOUNTS[paymentType];
   if (!amount) throw new Error(`Unknown payment type: ${paymentType}`);
 
-  if (!APEX_WALLET_SEED) throw new Error("APEX_XRPL_SEED not configured");
+  if (!APEX_WALLET_SEED) {
+    throw new Error(
+      "Receiving wallet not configured. Set XRPL_WALLET_SEED or APEX_XRPL_SEED in .env or .env.local."
+    );
+  }
 
   const client = await getXrplClient();
   try {

@@ -9,7 +9,14 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  serverExternalPackages: ["dockerode", "playwright", "@axe-core/playwright", "xrpl"],
+  serverExternalPackages: [
+    "dockerode",
+    "playwright",
+    "@axe-core/playwright",
+    "xrpl",
+    "@prisma/adapter-better-sqlite3",
+    "better-sqlite3",
+  ],
 };
 
 export default nextConfig;

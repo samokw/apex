@@ -4,9 +4,18 @@ import fs from "fs/promises";
 import { existsSync } from "fs";
 import os from "os";
 
-const docker = new Docker({
-  socketPath: process.env.DOCKER_SOCKET || "/var/run/docker.sock",
-});
+// Windows Docker Desktop uses a named pipe; Linux/macOS use a Unix socket.
+// Prefer DOCKER_SOCKET so it works when server runs in WSL or process.platform is wrong.
+const WINDOWS_PIPE = "//./pipe/docker_engine";
+const UNIX_SOCKET = "/var/run/docker.sock";
+const defaultSocket =
+  process.platform === "win32" ? WINDOWS_PIPE : UNIX_SOCKET;
+const socketPath =
+  process.env.DOCKER_SOCKET ||
+  (process.env.DOCKER_HOST?.startsWith("npipe://") ? WINDOWS_PIPE : null) ||
+  defaultSocket;
+
+const docker = new Docker({ socketPath });
 
 const SCANNER_IMAGE = process.env.SCANNER_IMAGE || "apex-scanner:latest";
 
@@ -23,7 +32,7 @@ export interface SandboxInstance {
 }
 
 export async function createTempDirs() {
-  const base = path.join(os.tmpdir(), `apex-${Date.now()}`);
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), "apex-"));
   const repoPath = path.join(base, "repo");
   const outputPath = path.join(base, "output");
   await fs.mkdir(repoPath, { recursive: true });
@@ -41,11 +50,23 @@ export async function cloneRepo(
     `https://x-access-token:${token}@github.com/`
   );
 
-  const { execSync } = await import("child_process");
-  execSync(`git clone --depth 1 ${authedUrl} ${targetPath}`, {
+  await fs.rm(targetPath, { recursive: true, force: true });
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+
+  const { spawnSync } = await import("child_process");
+  const result = spawnSync("git", ["clone", "--depth", "1", authedUrl, targetPath], {
     stdio: "pipe",
     timeout: 120000,
+    encoding: "utf-8",
   });
+
+  if (result.status !== 0) {
+    const details = (result.stderr || result.stdout || "unknown clone error")
+      .toString()
+      .trim()
+      .slice(0, 800);
+    throw new Error(`git clone failed: ${details}`);
+  }
 }
 
 export async function createSandbox(
@@ -96,6 +117,8 @@ export async function createSandbox(
 export type ExecInSandboxOptions = {
   /** Called with each chunk of stdout/stderr as it arrives (e.g. for live logs) */
   onOutput?: (chunk: string) => void;
+  /** Timeout in milliseconds (default: 120s). Resolves with exitCode -1 on timeout. */
+  timeoutMs?: number;
 };
 
 export async function execInSandbox(
@@ -115,27 +138,74 @@ export async function execInSandbox(
   const stream = await exec.start({ hijack: true, stdin: false });
 
   return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
     const onOutput = options?.onOutput;
+    const timeoutMs = options?.timeoutMs ?? 120_000;
+    let settled = false;
+
+    // Docker multiplexed stream format: each frame is
+    //   [stream_type(1)][0(3)][size(4 big-endian)][payload(size bytes)]
+    // stream_type: 1=stdout, 2=stderr
+    // We must demux to get clean text without binary frame headers.
+    let pendingBuf = Buffer.alloc(0);
+
+    function demuxPending() {
+      while (pendingBuf.length >= 8) {
+        const streamType = pendingBuf[0]; // 1=stdout, 2=stderr
+        const frameSize = pendingBuf.readUInt32BE(4);
+        if (pendingBuf.length < 8 + frameSize) break; // incomplete frame
+        const payload = pendingBuf.subarray(8, 8 + frameSize);
+        pendingBuf = pendingBuf.subarray(8 + frameSize);
+
+        if (streamType === 1) {
+          stdoutChunks.push(Buffer.from(payload));
+        } else {
+          stderrChunks.push(Buffer.from(payload));
+        }
+
+        if (onOutput) {
+          onOutput(payload.toString("utf-8"));
+        }
+      }
+    }
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      stream.destroy();
+      demuxPending();
+      resolve({
+        stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
+        exitCode: -1,
+      });
+    }, timeoutMs);
 
     stream.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-      if (onOutput) {
-        onOutput(chunk.toString("utf-8"));
-      }
+      pendingBuf = Buffer.concat([pendingBuf, chunk]);
+      demuxPending();
     });
     stream.on("end", async () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      demuxPending();
       try {
         const inspect = await exec.inspect();
         resolve({
-          stdout: Buffer.concat(chunks).toString("utf-8"),
+          stdout: Buffer.concat(stdoutChunks).toString("utf-8"),
           exitCode: inspect.ExitCode ?? 1,
         });
       } catch (err) {
         reject(err);
       }
     });
-    stream.on("error", reject);
+    stream.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
   });
 }
 

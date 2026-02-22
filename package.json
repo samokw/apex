@@ -13,8 +13,10 @@
     "@axe-core/playwright": "^4.11.1",
     "@libsql/client": "^0.17.0",
     "@octokit/rest": "^22.0.1",
+    "@prisma/adapter-better-sqlite3": "^7.4.1",
     "@prisma/adapter-libsql": "^7.4.1",
     "@prisma/client": "^7.4.1",
+    "better-sqlite3": "^12.6.2",
     "dockerode": "^4.0.9",
     "dotenv": "^17.3.1",
     "next": "16.1.6",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/dockerode": "^4.0.1",
     "@types/node": "^20",
     "@types/react": "^19",

@@ -42,6 +42,13 @@ model Scan {
   violations    Violation[]
   fixes         Fix[]
   pullRequest   PullRequest?
+  payments      Payment[]
+  // XRPL escrow: 1 XRP locked when scan starts; released to Apex on success, returnable by user after escrowCancelAfter on failure
+  escrowOwner         String?
+  escrowOfferSequence Int?
+  escrowTxHash        String?
+  escrowCancelAfter   DateTime?
+  escrowRefundedAt    DateTime?  // set when user got 1 XRP back after failed scan
 }
 
 model Violation {
@@ -77,16 +84,22 @@ model Fix {
 }
 
 model Payment {
-  id            String   @id @default(cuid())
-  userId        String
-  txHash        String?
-  amount        String
-  currency      String   @default("XRP")
-  paymentType   String   // scan | report | pr-credit
-  status        String   @default("pending") // pending | confirmed | failed
-  ledgerIndex   Int?
-  createdAt     DateTime @default(now())
-  user          User     @relation(fields: [userId], references: [id])
+  id                  String    @id @default(cuid())
+  userId              String
+  scanId              String?
+  txHash              String?
+  amount              String
+  currency            String    @default("XRP")
+  paymentType         String    // scan | report | pr-credit
+  status              String    @default("pending") // pending | escrowed | confirmed | failed | cancelled
+  ledgerIndex         Int?
+  escrowOwner         String?
+  escrowOfferSequence Int?
+  escrowTxHash        String?
+  escrowCancelAfter   DateTime?
+  createdAt           DateTime  @default(now())
+  user                User      @relation(fields: [userId], references: [id])
+  scan                Scan?     @relation(fields: [scanId], references: [id])
 }
 
 model PullRequest {
