@@ -1,6 +1,7 @@
 import Docker from "dockerode";
 import path from "path";
 import fs from "fs/promises";
+import { existsSync } from "fs";
 import os from "os";
 
 const docker = new Docker({
@@ -58,18 +59,27 @@ export async function createSandbox(
     envVars.push(`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}`);
   }
 
+  const binds = [
+    `${config.repoPath}:/workspace:rw`,
+    `${config.outputPath}:/output:rw`,
+    `apex-npm-cache:/root/.npm:rw`,
+  ];
+
+  const opencodeAuthBind = resolveOpenCodeAuthBind();
+  if (opencodeAuthBind) {
+    binds.push(opencodeAuthBind);
+  }
+
   const container = await docker.createContainer({
     Image: SCANNER_IMAGE,
     Cmd: ["sleep", "3600"],
     Env: envVars,
     HostConfig: {
-      Binds: [
-        `${config.repoPath}:/workspace:rw`,
-        `${config.outputPath}:/output:rw`,
-      ],
+      Binds: binds,
       AutoRemove: true,
-      Memory: 2 * 1024 * 1024 * 1024,
+      Memory: 3 * 1024 * 1024 * 1024,
       NanoCpus: 2 * 1e9,
+      Tmpfs: { "/tmp": "rw,exec,nosuid,size=256m" },
     },
     WorkingDir: "/workspace",
   });
@@ -83,9 +93,15 @@ export async function createSandbox(
   };
 }
 
+export type ExecInSandboxOptions = {
+  /** Called with each chunk of stdout/stderr as it arrives (e.g. for live logs) */
+  onOutput?: (chunk: string) => void;
+};
+
 export async function execInSandbox(
   sandbox: SandboxInstance,
-  command: string[]
+  command: string[],
+  options?: ExecInSandboxOptions
 ): Promise<{ stdout: string; exitCode: number }> {
   const container = docker.getContainer(sandbox.containerId);
 
@@ -100,8 +116,14 @@ export async function execInSandbox(
 
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
+    const onOutput = options?.onOutput;
 
-    stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    stream.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+      if (onOutput) {
+        onOutput(chunk.toString("utf-8"));
+      }
+    });
     stream.on("end", async () => {
       try {
         const inspect = await exec.inspect();
@@ -134,4 +156,31 @@ export async function cleanupTempDirs(basePath: string): Promise<void> {
   } catch {
     // Best-effort cleanup
   }
+}
+
+function resolveOpenCodeAuthBind(): string | null {
+  const authFileOverride = process.env.OPENCODE_AUTH_FILE;
+  if (authFileOverride && existsSync(authFileOverride)) {
+    return `${authFileOverride}:/root/.local/share/opencode/auth.json:ro`;
+  }
+
+  const authDirOverride = process.env.OPENCODE_AUTH_DIR;
+  if (authDirOverride && existsSync(path.join(authDirOverride, "auth.json"))) {
+    return `${path.join(authDirOverride, "auth.json")}:/root/.local/share/opencode/auth.json:ro`;
+  }
+
+  const home = os.homedir();
+  const candidateDirs = [
+    path.join(home, ".local", "share", "opencode"),
+    path.join(home, ".config", "opencode"),
+  ];
+
+  for (const dir of candidateDirs) {
+    const authFile = path.join(dir, "auth.json");
+    if (existsSync(authFile)) {
+      return `${authFile}:/root/.local/share/opencode/auth.json:ro`;
+    }
+  }
+
+  return null;
 }

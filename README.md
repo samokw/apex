@@ -65,6 +65,29 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | Scanner image | `docker build -f docker/Dockerfile.scanner -t apex-scanner:latest .` |
 | Start app | `npm run dev` |
 
+## AI fixer tuning (optional)
+
+If you want longer-running or more incremental AI fixing, add these to `.env`:
+
+```env
+OPENCODE_MODEL="opencode/glm-5-free"
+OPENCODE_TIMEOUT_SECONDS=90
+OPENCODE_TOTAL_TIMEOUT_SECONDS=240
+OPENCODE_PROMPT_BATCH_SIZE=1
+OPENCODE_PROMPT_MAX_BATCHES=50
+OPENCODE_CONTRAST_THINKING=true
+OPENCODE_ALL_THINKING=false
+# optional: minimal | high | max (provider-specific)
+OPENCODE_THINKING_VARIANT=
+```
+
+- `OPENCODE_PROMPT_BATCH_SIZE=1` processes one violation at a time.
+- Fixes are upserted to the database after each batch, so they appear during `fixing`.
+- `OPENCODE_TOTAL_TIMEOUT_SECONDS` caps total fixer runtime for MVP responsiveness.
+- Contrast violations are grouped first and can run in thinking mode with `OPENCODE_CONTRAST_THINKING=true`.
+- Set `OPENCODE_ALL_THINKING=true` to run every fix batch in thinking mode.
+- Increase timeouts and max batches only when you need deeper remediation.
+
 ## Learn more
 
 - [Next.js Documentation](https://nextjs.org/docs)

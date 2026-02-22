@@ -1,4 +1,5 @@
 import { Octokit } from "@octokit/rest";
+import { normalizeRepoFilePath } from "./repo-path";
 
 export function createOctokit(accessToken: string) {
   return new Octokit({ auth: accessToken });
@@ -86,13 +87,17 @@ export async function commitFile(
   message: string
 ) {
   const octokit = createOctokit(accessToken);
+  const repoFilePath = normalizeRepoFilePath(filePath);
+  if (!repoFilePath) {
+    throw new Error("Invalid file path for commit");
+  }
 
   let sha: string | undefined;
   try {
     const { data } = await octokit.repos.getContent({
       owner,
       repo,
-      path: filePath,
+      path: repoFilePath,
       ref: branch,
     });
     if (!Array.isArray(data) && data.type === "file") {
@@ -105,7 +110,7 @@ export async function commitFile(
   await octokit.repos.createOrUpdateFileContents({
     owner,
     repo,
-    path: filePath,
+    path: repoFilePath,
     message,
     content: Buffer.from(content).toString("base64"),
     branch,

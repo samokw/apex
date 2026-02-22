@@ -17,7 +17,7 @@ export async function GET(
     where: { id, userId: session.dbUserId },
     include: {
       violations: { orderBy: { score: "desc" } },
-      fixes: true,
+      fixes: { orderBy: { createdAt: "asc" } },
       pullRequest: true,
     },
   });

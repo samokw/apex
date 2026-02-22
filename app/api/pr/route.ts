@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApexSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
-import { createBranch, commitFile, createPullRequest } from "@/lib/github";
+import { createBranch, commitFile, createPullRequest, createOctokit } from "@/lib/github";
+import { normalizeRepoFilePath } from "@/lib/repo-path";
 import { generateReportSummary } from "@/lib/wcag";
 
 export async function POST(req: NextRequest) {
@@ -18,8 +19,9 @@ export async function POST(req: NextRequest) {
   const scan = await prisma.scan.findUnique({
     where: { id: scanId, userId: session.dbUserId },
     include: {
+      pullRequest: true,
       violations: true,
-      fixes: { where: { status: "accepted" } },
+      fixes: { where: { status: "accepted" }, orderBy: { createdAt: "asc" } },
     },
   });
 
@@ -29,6 +31,15 @@ export async function POST(req: NextRequest) {
 
   if (scan.fixes.length === 0) {
     return NextResponse.json({ error: "No accepted fixes" }, { status: 400 });
+  }
+
+  if (scan.pullRequest) {
+    return NextResponse.json({
+      prUrl: scan.pullRequest.prUrl,
+      prNumber: scan.pullRequest.prNumber,
+      branchName: scan.pullRequest.branchName,
+      reused: true,
+    });
   }
 
   try {
@@ -41,15 +52,62 @@ export async function POST(req: NextRequest) {
       scan.branch
     );
 
+    const octokit = createOctokit(session.accessToken);
+    const fixesByFile = new Map<string, typeof scan.fixes>();
     for (const fix of scan.fixes) {
+      const repoPath = normalizeRepoFilePath(fix.filePath);
+      if (!repoPath) continue;
+      const list = fixesByFile.get(repoPath) ?? [];
+      list.push(fix);
+      fixesByFile.set(repoPath, list);
+    }
+
+    let committedFileCount = 0;
+    let appliedFixCount = 0;
+    const appliedFixes: typeof scan.fixes = [];
+
+    for (const [repoPath, fixes] of fixesByFile) {
+      let currentContent = await getRepoFileContent(
+        octokit,
+        scan.repoOwner,
+        scan.repoName,
+        repoPath,
+        scan.branch
+      );
+      const originalContent = currentContent;
+      let fileAppliedCount = 0;
+
+      for (const fix of fixes) {
+        const patchResult = applySnippetFix(
+          currentContent,
+          fix.originalCode,
+          fix.fixedCode
+        );
+        if (!patchResult.applied) continue;
+        currentContent = patchResult.content;
+        fileAppliedCount += 1;
+        appliedFixes.push(fix);
+      }
+
+      if (fileAppliedCount === 0 || currentContent === originalContent) continue;
+
       await commitFile(
         session.accessToken,
         scan.repoOwner,
         scan.repoName,
         branchName,
-        fix.filePath,
-        fix.fixedCode,
-        `fix(a11y): ${fix.explanation?.substring(0, 72) || "Fix accessibility violation"}`
+        repoPath,
+        currentContent,
+        `fix(a11y): apply ${fileAppliedCount} accepted fix(es) in ${repoPath}`
+      );
+      committedFileCount += 1;
+      appliedFixCount += fileAppliedCount;
+    }
+
+    if (committedFileCount === 0) {
+      return NextResponse.json(
+        { error: "No applicable file changes could be produced from accepted fixes." },
+        { status: 400 }
       );
     }
 
@@ -67,7 +125,7 @@ export async function POST(req: NextRequest) {
 
 ### Summary
 - **Violations Found**: ${report.totalViolations}
-- **Fixes Applied**: ${scan.fixes.length}
+- **Fixes Applied**: ${appliedFixCount}
 - **Score Before**: ${scan.score ?? "N/A"}/100
 - **Score After**: ${scan.scoreAfter ?? "N/A"}/100
 
@@ -83,7 +141,7 @@ export async function POST(req: NextRequest) {
 ${report.aodaRelevantCount} violation(s) are relevant to Ontario IASR Information and Communications Standard (WCAG 2.0 AA).
 
 ### Fixes Applied
-${scan.fixes.map((f, i) => `${i + 1}. \`${f.filePath}\`: ${f.explanation}`).join("\n")}
+${appliedFixes.map((f, i) => `${i + 1}. \`${normalizeRepoFilePath(f.filePath) || f.filePath}\`: ${f.explanation}`).join("\n")}
 
 ---
 
@@ -96,15 +154,17 @@ ${scan.fixes.map((f, i) => `${i + 1}. \`${f.filePath}\`: ${f.explanation}`).join
       {
         owner: scan.repoOwner,
         repo: scan.repoName,
-        title: `[Apex] Accessibility fixes — ${scan.fixes.length} issue(s) remediated`,
+        title: `[Apex] Accessibility fixes — ${appliedFixCount} issue(s) remediated`,
         body: prBody,
         head: branchName,
         base: scan.branch,
       }
     );
 
-    await prisma.pullRequest.create({
-      data: {
+    await prisma.pullRequest.upsert({
+      where: { scanId },
+      update: { prUrl, prNumber, branchName, status: "open" },
+      create: {
         scanId,
         prUrl,
         prNumber,
@@ -115,7 +175,93 @@ ${scan.fixes.map((f, i) => `${i + 1}. \`${f.filePath}\`: ${f.explanation}`).join
 
     return NextResponse.json({ prUrl, prNumber, branchName });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "PR creation failed";
+    const msg = formatRouteError(err);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+function applySnippetFix(
+  content: string,
+  originalCode: string,
+  fixedCode: string
+): { content: string; applied: boolean } {
+  if (!originalCode) return { content, applied: false };
+
+  const exactIdx = content.indexOf(originalCode);
+  if (exactIdx !== -1) {
+    return {
+      content:
+        content.slice(0, exactIdx) +
+        fixedCode +
+        content.slice(exactIdx + originalCode.length),
+      applied: true,
+    };
+  }
+
+  const normalizedContent = content.replace(/\r\n/g, "\n");
+  const normalizedOriginal = originalCode.replace(/\r\n/g, "\n");
+  const normalizedFixed = fixedCode.replace(/\r\n/g, "\n");
+  const normalizedIdx = normalizedContent.indexOf(normalizedOriginal);
+  if (normalizedIdx !== -1) {
+    return {
+      content:
+        normalizedContent.slice(0, normalizedIdx) +
+        normalizedFixed +
+        normalizedContent.slice(normalizedIdx + normalizedOriginal.length),
+      applied: true,
+    };
+  }
+
+  const trimmedOriginal = normalizedOriginal.trim();
+  if (!trimmedOriginal) return { content, applied: false };
+  const trimmedIdx = normalizedContent.indexOf(trimmedOriginal);
+  if (trimmedIdx !== -1) {
+    return {
+      content:
+        normalizedContent.slice(0, trimmedIdx) +
+        normalizedFixed.trim() +
+        normalizedContent.slice(trimmedIdx + trimmedOriginal.length),
+      applied: true,
+    };
+  }
+
+  return { content, applied: false };
+}
+
+async function getRepoFileContent(
+  octokit: ReturnType<typeof createOctokit>,
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string
+): Promise<string> {
+  const { data } = await octokit.repos.getContent({
+    owner,
+    repo,
+    path,
+    ref,
+  });
+
+  if (Array.isArray(data) || data.type !== "file") {
+    throw new Error(`Repository path is not a file: ${path}`);
+  }
+
+  return Buffer.from(data.content || "", "base64").toString("utf8");
+}
+
+function formatRouteError(err: unknown): string {
+  if (!err || typeof err !== "object") {
+    return "PR creation failed";
+  }
+
+  const maybe = err as {
+    message?: string;
+    status?: number;
+    response?: { data?: { message?: string } };
+  };
+
+  const status = maybe.status ? ` [${maybe.status}]` : "";
+  const responseMessage = maybe.response?.data?.message?.trim();
+  const base = responseMessage || maybe.message || "PR creation failed";
+  return `${base}${status}`;
 }
