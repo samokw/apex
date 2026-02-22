@@ -341,7 +341,7 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-0 border-t border-[#1a1a1a] mb-0">
             <div className="py-10 md:py-14 px-6 md:px-8">
               <div className="editorial-label mb-3">Traditional Audit</div>
-              <div className="font-editorial text-4xl md:text-5xl italic text-[#ff3b5c] pr-2">$2,500–$15K</div>
+              <div className="font-editorial text-4xl md:text-5xl italic text-[#ff3b5c] pr-2">$2,500–$25K</div>
               <div className="font-mono text-xs text-[#919191] mt-2">CAD per assessment</div>
               <a
                 href="https://accessibilitypartners.ca/accessibility-audit-cost-in-canada/"
@@ -380,17 +380,55 @@ export default function LandingPage() {
                 <span className="text-[#00f0ff]">Most don&rsquo;t have it.</span>
               </h3>
               <p className="font-body text-[#b3b3b3] leading-relaxed text-base mb-4">
-                A single WCAG accessibility audit in Canada costs $2,500 to $15,000.
+                A single WCAG accessibility audit in Canada costs $2,500 to $25,000.
                 Black-owned businesses — 63% of which are sole proprietorships with no
                 employees — can&rsquo;t absorb that cost. Meanwhile, AODA non-compliance
                 carries fines of up to $100,000 per day.
               </p>
               <p className="font-body text-[#b3b3b3] leading-relaxed text-base">
-                Apex replaces the $2,500 audit with a 1 XRP scan. No bank account, no
+                Apex replaces the $25,000 audit with a 1 XRP scan. No bank account, no
                 credit card, no subscription — just XRPL micropayments that make AODA
                 compliance accessible to founders who have been locked out of the
                 resources they need.
               </p>
+              {/* Canadian compliance cost comparison */}
+              <div className="mt-8 border border-[#1a1a1a] rounded p-6 md:p-8">
+                <div className="font-mono text-xs uppercase tracking-widest text-[#919191] mb-6">
+                  Compliance Cost in Canada
+                </div>
+                <div className="space-y-6">
+                  {[
+                    { label: "Manual AODA Audit", cost: 25000, display: "$25,000 CAD", color: "#ff3b5c" },
+                    { label: "Apex (10 scans)", cost: 15, display: "~$15 CAD", color: "#00f0ff" },
+                    { label: "Apex (1 scan)", cost: 1.50, display: "~$1.50 CAD", color: "#00f0ff" },
+                  ].map((tool) => (
+                    <div key={tool.label}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-mono text-xs text-[#b3b3b3]">{tool.label}</span>
+                        <span className="font-mono text-sm font-medium" style={{ color: tool.color }}>
+                          {tool.display}
+                        </span>
+                      </div>
+                      <div className="h-4 bg-[#0a0a0a] rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-1000"
+                          style={{
+                            width: `${Math.max((tool.cost / 25000) * 100, 1.5)}%`,
+                            backgroundColor: tool.color,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 pt-4 border-t border-[#1a1a1a]">
+                  <div className="font-mono text-[10px] text-[#919191] uppercase tracking-wider mb-2">Source</div>
+                  <div className="font-mono text-[10px] text-[#919191]">
+                    <span className="text-[#ff3b5c]">$25,000</span>{" — "}
+                    <a href="https://accessibilitypartners.ca/accessibility-audit-cost-in-canada/" target="_blank" rel="noopener noreferrer" className="hover:text-[#00f0ff] underline underline-offset-2 decoration-[#1a1a1a] hover:decoration-[#00f0ff] transition-colors">Accessibility Partners Canada</a>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="md:col-span-7 md:border-l md:border-[#1a1a1a]">
@@ -420,8 +458,8 @@ export default function LandingPage() {
                   href: "https://abacusdata.ca/black-entrepreneurs-canada-inclusive-entrepreneurship/",
                 },
                 {
-                  stat: "~80%",
-                  body: "of Black entrepreneurs report difficulty securing capital. Banks are less likely to approve loans for Black-owned firms compared to similar white-owned firms.",
+                  stat: "80%",
+                  body: "of Black entrepreneurs use personal savings to fund their business. Banks are less likely to approve loans for Black-owned firms compared to similar white-owned firms.",
                   source: "Bain & Company / BlackNorth Initiative, 2023",
                   href: "https://www.bain.com/insights/understanding-and-removing-barriers-to-black-entrepreneurship-in-canada/",
                 },
