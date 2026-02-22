@@ -243,8 +243,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const cancelUser = await prisma.user.findUnique({ where: { id: session.dbUserId } });
+    if (!cancelUser?.xrplSeed) {
+      return NextResponse.json({ error: "No wallet seed on file" }, { status: 400 });
+    }
+
     try {
-      const result = await cancelEscrow(payment.escrowOwner, payment.escrowOfferSequence);
+      const result = await cancelEscrow(payment.escrowOwner, payment.escrowOfferSequence, cancelUser.xrplSeed);
       await prisma.payment.update({
         where: { id: paymentId },
         data: { status: "cancelled", txHash: result.txHash },

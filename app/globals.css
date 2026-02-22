@@ -155,6 +155,12 @@ body {
   font-family: var(--font-editorial), "Times New Roman", serif;
 }
 
+/* Italic editorial text extends beyond its bounding box; compensate with scaled padding */
+.font-editorial:is(i, em, [style*="italic"]),
+.font-editorial.italic {
+  padding-right: 0.25em;
+}
+
 .font-body {
   font-family: var(--font-body), system-ui, sans-serif;
 }

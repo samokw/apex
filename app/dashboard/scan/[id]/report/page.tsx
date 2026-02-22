@@ -85,7 +85,7 @@ export default async function ReportPage({
           </svg>
         </Link>
         <div>
-          <h1 className="font-editorial text-[clamp(1.5rem,3vw,2.5rem)] italic leading-tight">
+          <h1 className="font-editorial text-[clamp(1.5rem,3vw,2.5rem)] italic leading-tight pr-2">
             Compliance Report
           </h1>
           <p className="font-mono text-xs text-[#919191] uppercase tracking-wider mt-1">
@@ -118,7 +118,7 @@ export default async function ReportPage({
             Score
           </div>
           <div
-            className="font-editorial text-5xl italic"
+            className="font-editorial text-5xl italic pr-2"
             style={{
               color: report.score >= 90 ? "#4ade80" : report.score >= 70 ? "#ffc53d" : "#ff3b5c",
             }}
@@ -132,14 +132,14 @@ export default async function ReportPage({
           <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">
             Violations
           </div>
-          <div className="font-editorial text-5xl italic">{report.totalViolations}</div>
+          <div className="font-editorial text-5xl italic pr-2">{report.totalViolations}</div>
         </div>
 
         <div className="py-8 md:px-8 border-l border-[#1a1a1a]">
           <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">
             AODA Relevant
           </div>
-          <div className="font-editorial text-5xl italic text-[#00f0ff]">
+          <div className="font-editorial text-5xl italic text-[#00f0ff] pr-2">
             {report.aodaRelevantCount}
           </div>
         </div>
@@ -148,7 +148,7 @@ export default async function ReportPage({
           <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">
             Fixes Applied
           </div>
-          <div className="font-editorial text-5xl italic text-[#4ade80]">
+          <div className="font-editorial text-5xl italic text-[#4ade80] pr-2">
             {acceptedFixes.length}
           </div>
         </div>
@@ -172,7 +172,7 @@ export default async function ReportPage({
 
             return (
               <div key={level} className="flex items-center gap-6">
-                <div className="w-20 font-mono text-xs uppercase tracking-wider" style={{ color: colors[level] }}>
+                <div className="w-24 shrink-0 font-mono text-xs uppercase tracking-wider" style={{ color: colors[level] }}>
                   {level}
                 </div>
                 <div className="flex-1 h-1 bg-[#1a1a1a] overflow-hidden" role="progressbar" aria-valuenow={count} aria-valuemin={0} aria-valuemax={maxCount} aria-label={`${level}: ${count} violations`}>
@@ -184,7 +184,7 @@ export default async function ReportPage({
                     }}
                   />
                 </div>
-                <div className="w-8 text-right font-mono text-sm">{count}</div>
+                <div className="w-10 text-right font-mono text-sm">{count}</div>
               </div>
             );
           })}
@@ -195,7 +195,7 @@ export default async function ReportPage({
       {aodaViolations.length > 0 && (
         <div className="mb-8">
           <div className="font-mono text-xs uppercase tracking-widest text-[#919191] mb-2">AODA / IASR</div>
-          <h2 className="font-editorial text-xl italic mb-2">
+          <h2 className="font-editorial text-xl italic mb-2 pr-2">
             Information and Communications Standard
           </h2>
           <p className="text-sm text-[#b3b3b3] font-body mb-6">
@@ -246,7 +246,7 @@ export default async function ReportPage({
                   <tr key={v.id} className="border-b border-[#0f0f0f] hover:bg-[#0a0a0a]">
                     <td className="py-3 px-2"><SeverityBadge impact={v.impact} /></td>
                     <td className="py-3 px-2 font-mono text-xs text-[#b3b3b3]">{v.ruleId}</td>
-                    <td className="py-3 px-2 text-[#b3b3b3] font-body max-w-xs truncate">{v.description}</td>
+                    <td className="py-3 px-2 text-[#b3b3b3] font-body max-w-md"><span className="line-clamp-2">{v.description}</span></td>
                     <td className="py-3 px-2 font-mono text-xs text-[#919191]">{v.wcagCriteria || "—"}</td>
                     <td className="py-3 px-2">
                       {v.aodaRelevant ? (
@@ -280,7 +280,7 @@ export default async function ReportPage({
           <div className="flex items-center gap-12 justify-center py-8">
             <div className="text-center">
               <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">Before</div>
-              <div className="font-editorial text-5xl italic" style={{
+              <div className="font-editorial text-5xl italic pr-2" style={{
                 color: scan.score >= 90 ? "#4ade80" : scan.score >= 70 ? "#ffc53d" : "#ff3b5c"
               }}>
                 {scan.score}
@@ -291,11 +291,11 @@ export default async function ReportPage({
             </svg>
             <div className="text-center">
               <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">After</div>
-              <div className="font-editorial text-5xl italic text-[#4ade80]">{scan.scoreAfter}</div>
+              <div className="font-editorial text-5xl italic text-[#4ade80] pr-2">{scan.scoreAfter}</div>
             </div>
             <div className="text-center border-l border-[#1a1a1a] pl-12">
               <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">Improvement</div>
-              <div className="font-editorial text-5xl italic text-[#00f0ff]">
+              <div className="font-editorial text-5xl italic text-[#00f0ff] pr-2">
                 +{scan.scoreAfter - scan.score}
               </div>
             </div>

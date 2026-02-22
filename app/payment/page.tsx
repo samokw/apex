@@ -77,7 +77,7 @@ export default function PaymentPage() {
       />
 
       <main id="main-content" tabIndex={-1} className="max-w-4xl mx-auto px-6 md:px-16 py-8">
-        <h1 className="font-editorial text-[clamp(2rem,4vw,3.5rem)] italic leading-tight mb-2">
+        <h1 className="font-editorial text-[clamp(2rem,4vw,3.5rem)] italic leading-tight mb-2 pr-2">
           Wallet
         </h1>
         <p className="font-body text-sm text-[#b3b3b3] mb-2">
@@ -103,7 +103,7 @@ export default function PaymentPage() {
           </div>
         ) : !wallet?.address ? (
           <div className="py-16 border-t border-[#1a1a1a]">
-            <h2 className="font-editorial text-2xl italic mb-3">No wallet connected</h2>
+            <h2 className="font-editorial text-2xl italic mb-3 pr-2">No wallet connected</h2>
             <p className="font-body text-sm text-[#b3b3b3] mb-8 max-w-md">
               Create a testnet wallet to start paying for scans with XRP.
               Testnet wallets are funded with 1,000 test XRP automatically.
@@ -123,14 +123,14 @@ export default function PaymentPage() {
           <div className="grid grid-cols-1 md:grid-cols-12 gap-0 border-t border-[#1a1a1a] mb-8">
             <div className="md:col-span-4 py-8 md:pr-8">
               <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">Balance</div>
-              <div className="font-editorial text-5xl italic text-[#00f0ff]">
+              <div className="font-editorial text-5xl italic text-[#00f0ff] pr-2">
                 {wallet.balance.toLocaleString()}
               </div>
               <div className="font-mono text-xs text-[#919191] mt-1">XRP</div>
             </div>
             <div className="md:col-span-4 py-8 md:px-8 border-l border-[#1a1a1a]">
               <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-2">Network</div>
-              <div className="font-editorial text-2xl italic">Testnet</div>
+              <div className="font-editorial text-2xl italic pr-2">Testnet</div>
               <div className="font-mono text-xs text-[#919191] mt-1">XRPL</div>
             </div>
             <div className="md:col-span-4 py-8 md:pl-8 border-l border-[#1a1a1a]">
@@ -152,13 +152,15 @@ export default function PaymentPage() {
             </p>
             <div className="grid grid-cols-3 gap-0 border-t border-[#1a1a1a]">
               {pricingTiers.map((tier, i) => (
-                <div key={tier.label} className={`py-10 px-6 md:px-8 ${i > 0 ? "border-l border-[#1a1a1a]" : ""}`}>
-                  <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-4">{tier.label}</div>
-                  <div className="font-editorial text-4xl md:text-5xl italic text-[#f5f5f5]">
-                    {tier.amount}
+                <div key={tier.label} className={`py-10 px-6 md:px-8 flex flex-col justify-between ${i > 0 ? "border-l border-[#1a1a1a]" : ""}`}>
+                  <div>
+                    <div className="font-mono text-[11px] uppercase tracking-widest text-[#919191] mb-4">{tier.label}</div>
+                    <div className="font-editorial text-4xl md:text-5xl italic text-[#f5f5f5] pr-2">
+                      {tier.amount}
+                    </div>
+                    <div className="font-mono text-xs text-[#919191] mt-1">XRP</div>
+                    <p className="font-body text-xs text-[#919191] mt-4">{tier.desc}</p>
                   </div>
-                  <div className="font-mono text-xs text-[#919191] mt-1">XRP</div>
-                  <p className="font-body text-xs text-[#919191] mt-4">{tier.desc}</p>
                   <p className="font-mono text-[10px] uppercase tracking-wider text-[#00f0ff] mt-4">{tier.trigger}</p>
                 </div>
               ))}

@@ -32,7 +32,6 @@ export function Navbar({ username, avatarUrl }: NavbarProps) {
 
           <div className="hidden md:flex items-center gap-0 border-l border-[#1a1a1a] pl-6">
             {links.map((link, i) => {
-              // Dashboard is only active on exact /dashboard; Repos/Wallet use prefix so sub-routes stay highlighted
               const active =
                 link.href === "/dashboard"
                   ? pathname === "/dashboard"
